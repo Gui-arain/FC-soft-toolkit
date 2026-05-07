@@ -21,7 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <math.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -89,6 +89,7 @@ void icm_read_data(ICM_Data *d);
 
 // RGB Led handling functions
 void RGB_SetColor(uint16_t red, uint16_t green, uint16_t blue);
+void RGB_Accel(ICM_Data *d);
 
 /* USER CODE END PFP */
 
@@ -135,8 +136,10 @@ int main(void)
 
   icm_init(); //Initialize and configure IMU
 
-  icm_read_data(&imu_data);
-
+  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);  // Red
+  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_2);  // Green
+  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_3);  // Blue
+  HAL_Delay(10);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -144,6 +147,11 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
+	icm_read_data(&imu_data);
+
+	RGB_Accel(&imu_data);
+
+	HAL_Delay(10); //100Hz
 
     /* USER CODE BEGIN 3 */
   }
@@ -447,6 +455,26 @@ void RGB_SetColor(uint16_t red, uint16_t green, uint16_t blue)
     __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, red);
     __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_2, green);
     __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_3, blue);
+}
+
+void RGB_Accel(ICM_Data *d)
+{
+    // convert to g, take absolute value, clamp to 0-1g, scale to 0-999
+    float ax = fabsf((float)d->ax / 4096.0f);
+    float ay = fabsf((float)d->ay / 4096.0f);
+    float az = fabsf((float)d->az / 4096.0f);
+
+    // clamp to 0-1g
+    if (ax > 1.0f) ax = 1.0f;
+    if (ay > 1.0f) ay = 1.0f;
+    if (az > 1.0f) az = 1.0f;
+
+    // Scale to 0-999
+    uint16_t red_intensity   = (uint16_t)(ax * 999.0f);
+    uint16_t green_intensity = (uint16_t)(ay * 999.0f);
+    uint16_t blue_intensity  = (uint16_t)(az * 999.0f);
+
+	RGB_SetColor(red_intensity, green_intensity, blue_intensity);
 }
 /* USER CODE END 4 */
 
