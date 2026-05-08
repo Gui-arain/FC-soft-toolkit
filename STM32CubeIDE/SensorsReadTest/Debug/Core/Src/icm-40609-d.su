@@ -1,0 +1,5 @@
+../Core/Src/icm-40609-d.c:22:13:icm_write	24	static
+../Core/Src/icm-40609-d.c:30:16:icm_read	32	static
+../Core/Src/icm-40609-d.c:39:9:icm_read_who_am_i	16	static
+../Core/Src/icm-40609-d.c:43:12:icm_init	16	static
+../Core/Src/icm-40609-d.c:72:12:icm_read_data	56	static

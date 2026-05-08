@@ -22,36 +22,19 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <math.h>
+#include "icm-40609-d.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
-typedef struct {
-    int16_t ax, ay, az;
-    int16_t gx, gy, gz;
-    int16_t temp;
-} ICM_Data;
 
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-#define ICM_READ        0x80  // bit7=1 for read
-// Address registers for the ICM-40609-D IMU
-#define REG_WHO_AM_I    0x75  //IMU ID register
-#define REG_DEVICE_CFG  0x11  //Configure SPI Mode and soft reset
-#define REG_PWR_MGMT0   0x4E  //turn on/off oscillators, temp probe, gyro
-#define REG_GYRO_CFG0   0x4F  //Gyro config
-#define REG_ACCEL_CFG0  0x50  //Accel config
-#define REG_BANK_SEL    0x76  //Register bank selection
-
-#define WHO_AM_I_VAL    0x3B  // Expected value
-
-// IMU CS Pin
-#define IMU_CS_GPIO_Port	GPIOF
-#define IMU_CS_Pin	GPIO_PIN_10
 
 /* USER CODE END PD */
 
@@ -68,6 +51,11 @@ TIM_HandleTypeDef htim4;
 
 /* USER CODE BEGIN PV */
 
+ICM_Handle imu = {
+    .hspi = &hspi5,
+    .cs_port = GPIOF,
+    .cs_pin = GPIO_PIN_10
+};
 ICM_Data imu_data;
 
 /* USER CODE END PV */
@@ -79,13 +67,6 @@ static void MX_GPIO_Init(void);
 static void MX_TIM4_Init(void);
 static void MX_SPI5_Init(void);
 /* USER CODE BEGIN PFP */
-
-// IMU handling functions
-uint8_t icm_read_who_am_i(void);
-void icm_write(uint8_t reg, uint8_t data);
-uint8_t icm_read(uint8_t reg);
-void icm_init(void);
-void icm_read_data(ICM_Data *d);
 
 // RGB Led handling functions
 void RGB_SetColor(uint16_t red, uint16_t green, uint16_t blue);
@@ -134,7 +115,11 @@ int main(void)
   MX_SPI5_Init();
   /* USER CODE BEGIN 2 */
 
-  icm_init(); //Initialize and configure IMU
+  // Initialize IMU
+  if (icm_init(&imu) != ICM_OK) {
+      HAL_GPIO_WritePin(GPIOD, GPIO_PIN_6, GPIO_PIN_SET);  // Turn on error LED
+      Error_Handler();
+  }
 
   HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);  // Red
   HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_2);  // Green
@@ -147,7 +132,7 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-	icm_read_data(&imu_data);
+	icm_read_data(&imu, &imu_data);
 
 	RGB_Accel(&imu_data);
 
@@ -374,81 +359,6 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-uint8_t icm_read_who_am_i(void) {
-    uint8_t tx[2] = { REG_WHO_AM_I | ICM_READ, 0x00 };  // bit7=1 → read
-    uint8_t rx[2] = { 0x00, 0x00 };
-
-    HAL_GPIO_WritePin(IMU_CS_GPIO_Port, IMU_CS_Pin, GPIO_PIN_RESET); //CS line to GND = select for SPI com
-    HAL_SPI_TransmitReceive(&hspi5, tx, rx, 2, HAL_MAX_DELAY);
-    HAL_GPIO_WritePin(IMU_CS_GPIO_Port, IMU_CS_Pin, GPIO_PIN_SET);
-
-    return rx[1];  // First byte is dummy, answer is in rx[1]
-}
-
-void icm_write(uint8_t reg, uint8_t data) {
-    uint8_t tx[2] = { reg & 0x7F, data };  // bit7=0 for write
-    HAL_GPIO_WritePin(IMU_CS_GPIO_Port, IMU_CS_Pin, GPIO_PIN_RESET); //CS line to GND = select for SPI com
-    HAL_SPI_Transmit(&hspi5, tx, 2, HAL_MAX_DELAY);
-    HAL_GPIO_WritePin(IMU_CS_GPIO_Port, IMU_CS_Pin, GPIO_PIN_SET);
-    HAL_Delay(1);
-}
-
-uint8_t icm_read(uint8_t reg) {
-    uint8_t tx[2] = { reg | ICM_READ, 0x00 };
-    uint8_t rx[2] = { 0 };
-    HAL_GPIO_WritePin(IMU_CS_GPIO_Port, IMU_CS_Pin, GPIO_PIN_RESET);
-    HAL_SPI_TransmitReceive(&hspi5, tx, rx, 2, HAL_MAX_DELAY);
-    HAL_GPIO_WritePin(IMU_CS_GPIO_Port, IMU_CS_Pin, GPIO_PIN_SET);
-    return rx[1];
-}
-
-// --- Init IMU---
-void icm_init(void) {
-    // 1. Select Bank 0
-    icm_write(REG_BANK_SEL, 0x00);
-
-    // 2. Soft reset
-    icm_write(REG_DEVICE_CFG, 0x01);
-    HAL_Delay(10);  // Wait for reset to complete
-
-    // 3. Check WHO_AM_I
-    uint8_t id = icm_read(REG_WHO_AM_I);
-    if (id != WHO_AM_I_VAL) {
-        // Handle error — SPI wiring or mode issue
-    	HAL_GPIO_WritePin(GPIOD, GPIO_PIN_6, GPIO_PIN_SET); //Turn on LedSys in case of error
-        Error_Handler();
-    }
-
-    // 4. Wake up: enable Accel (LN) + Gyro (LN)
-    // PWR_MGMT0: bits[3:2]=11 (accel LN), bits[1:0]=11 (gyro LN)
-    icm_write(REG_PWR_MGMT0, 0x0F);
-    HAL_Delay(1);  // 200µs gyro startup
-
-    // 5. Gyro: ±2000 dps, 1kHz ODR
-    // GYRO_CONFIG0: FSR=0b000 (±2000), ODR=0b0110 (1kHz)
-    icm_write(REG_GYRO_CFG0, 0x06);
-
-    // 6. Accel: ±16g, 1kHz ODR
-    // ACCEL_CONFIG0: FSR=0b010 (±8g), ODR=0b0110 (1kHz)
-    icm_write(REG_ACCEL_CFG0, 0x46);
-}
-
-void icm_read_data(ICM_Data *d) {
-    uint8_t tx[15] = { 0x1D | ICM_READ };  // TEMP_DATA1 start
-    uint8_t rx[15] = { 0 };
-
-    HAL_GPIO_WritePin(IMU_CS_GPIO_Port, IMU_CS_Pin, GPIO_PIN_RESET);
-    HAL_SPI_TransmitReceive(&hspi5, tx, rx, 15, HAL_MAX_DELAY);
-    HAL_GPIO_WritePin(IMU_CS_GPIO_Port, IMU_CS_Pin, GPIO_PIN_SET);
-
-    d->temp = (int16_t)(rx[1] << 8 | rx[2]);
-    d->ax   = (int16_t)(rx[3] << 8 | rx[4]);
-    d->ay   = (int16_t)(rx[5] << 8 | rx[6]);
-    d->az   = (int16_t)(rx[7] << 8 | rx[8]);
-    d->gx   = (int16_t)(rx[9] << 8 | rx[10]);
-    d->gy   = (int16_t)(rx[11] << 8 | rx[12]);
-    d->gz   = (int16_t)(rx[13] << 8 | rx[14]);
-}
 
 void RGB_SetColor(uint16_t red, uint16_t green, uint16_t blue)
 {
@@ -460,9 +370,9 @@ void RGB_SetColor(uint16_t red, uint16_t green, uint16_t blue)
 void RGB_Accel(ICM_Data *d)
 {
     // convert to g, take absolute value, clamp to 0-1g, scale to 0-999
-    float ax = fabsf((float)d->ax / 4096.0f);
-    float ay = fabsf((float)d->ay / 4096.0f);
-    float az = fabsf((float)d->az / 4096.0f);
+    float ax = fabsf((float)d->ax / ICM_ACCEL_SENS_8G);
+    float ay = fabsf((float)d->ay / ICM_ACCEL_SENS_8G);
+    float az = fabsf((float)d->az / ICM_ACCEL_SENS_8G);
 
     // clamp to 0-1g
     if (ax > 1.0f) ax = 1.0f;
