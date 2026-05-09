@@ -53,13 +53,20 @@ SPI_HandleTypeDef hspi5;
 TIM_HandleTypeDef htim4;
 
 /* USER CODE BEGIN PV */
-
+// Define the imu wiring
 ICM_Handle imu = {
     .hspi = &hspi5,
     .cs_port = GPIOF,
     .cs_pin = GPIO_PIN_10
 };
-ICM_Data imu_data;
+ICM_Data imu_data; // Initialise the imu data struct
+// Define the mag wiring
+MMC5983_Handle mag = {
+		.hspi = &hspi4,
+		.cs_port = GPIOE,
+		.cs_pin = GPIO_PIN_4
+};
+MMC5983_Data mag_data; // Initialise the mag data struct
 
 /* USER CODE END PV */
 
@@ -153,9 +160,17 @@ int main(void)
 
   // Initialize IMU
   if (icm_init(&imu) != ICM_OK) {
+	  printf("[ICM-40609-D] INIT FAILED\r\n");
       HAL_GPIO_WritePin(GPIOD, GPIO_PIN_6, GPIO_PIN_SET);  // Turn on error LED
       Error_Handler();
   }
+  // Initialize MAG
+  if (!MMC5983_Init(&mag)) {
+      printf("[MMC5983] INIT FAILED\r\n");
+      HAL_GPIO_WritePin(GPIOD, GPIO_PIN_6, GPIO_PIN_SET);  // Turn on error LED
+      Error_Handler();
+  }
+
 
   HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);  // Red
   HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_2);  // Green
@@ -165,25 +180,45 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  char buf[32];
+  //char buf[32];
 
   while (1)
   {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	icm_read_data(&imu, &imu_data);
+	//icm_read_data(&imu, &imu_data);
 
-	RGB_Accel(&imu_data);
+	//RGB_Accel(&imu_data);
 
-	printf("ax: %d\r\n", imu_data.ax);
-	snprintf(buf, sizeof(buf), "ay: %d\r\n", imu_data.ay);
-	ITM_PrintPort(1, buf);
-	snprintf(buf, sizeof(buf), "az: %d\r\n", imu_data.az);
-	ITM_PrintPort(2, buf);
+	// Print on a port:
+	//snprintf(buf, sizeof(buf), "ay: %d\r\n", imu_data.ay);
+	//ITM_PrintPort(1, buf);
 
-	HAL_Delay(10); //100Hz
+    if (MMC5983_ReadData(&mag, &mag_data))
+    {
+        printf("[MMC5983] X=%+7.3f G  Y=%+7.3f G  Z=%+7.3f G  T=%.1f C"
+               "  (raw X=%lu Y=%lu Z=%lu)\r\n",
+               mag_data.x_gauss, mag_data.y_gauss, mag_data.z_gauss,
+			   mag_data.temp_celsius,
+			   mag_data.raw_x,   mag_data.raw_y,   mag_data.raw_z);
 
+        /* ── Sanity checks ───────────────────────────────────────── */
+        /* Earth's field is ~0.25–0.65 G.  Flag if totally out of range. */
+        float magnitude = mag_data.x_gauss * mag_data.x_gauss
+                        + mag_data.y_gauss * mag_data.y_gauss
+                        + mag_data.z_gauss * mag_data.z_gauss;
+        /* magnitude is |B|^2 here – sqrt not strictly needed for a range check */
+        if (magnitude < 0.01f || magnitude > 1.0f) {
+            printf("[MMC5983] WARNING: field magnitude out of expected range!\r\n");
+        }
+    }
+    else
+    {
+        printf("[MMC5983] Read error\r\n");
+    }
+
+    HAL_Delay(500);  /* 2 Hz print rate – adjust freely */
 
   }
   /* USER CODE END 3 */
@@ -293,8 +328,8 @@ static void MX_SPI4_Init(void)
   hspi4.Init.Mode = SPI_MODE_MASTER;
   hspi4.Init.Direction = SPI_DIRECTION_2LINES;
   hspi4.Init.DataSize = SPI_DATASIZE_8BIT;
-  hspi4.Init.CLKPolarity = SPI_POLARITY_LOW;
-  hspi4.Init.CLKPhase = SPI_PHASE_1EDGE;
+  hspi4.Init.CLKPolarity = SPI_POLARITY_HIGH;
+  hspi4.Init.CLKPhase = SPI_PHASE_2EDGE;
   hspi4.Init.NSS = SPI_NSS_SOFT;
   hspi4.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
   hspi4.Init.FirstBit = SPI_FIRSTBIT_MSB;

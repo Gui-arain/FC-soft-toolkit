@@ -43,8 +43,8 @@
 
 /* ── SPI framing ──────────────────────────────────────────────────────── */
 /* bit[0]=0 → write, bit[0]=1 → read ; bit[1]=don't care ; bits[7:2]=addr */
-#define MMC5983_SPI_READ(addr)   (0x80 | ((addr) << 2))
-#define MMC5983_SPI_WRITE(addr)  (0x00 | ((addr) << 2))
+#define MMC5983_SPI_READ(addr)   (0x80 | addr)
+#define MMC5983_SPI_WRITE(addr)  (addr)
 
 /* ── Expected product ID ──────────────────────────────────────────────── */
 #define MMC5983_PRODUCT_ID      0x30

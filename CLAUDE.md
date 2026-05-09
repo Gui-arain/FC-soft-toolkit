@@ -10,9 +10,10 @@ FC Soft Toolkit is flight controller firmware for the Shirley FC, a custom fligh
 
 ### STM32CubeIDE Projects (Baremetal)
 
-Projects are built through STM32CubeIDE. The two main projects are:
+Projects are built through STM32CubeIDE. Current projects:
 - `STM32CubeIDE/LedBlinkTest/` - RGB LED PWM demo (STM32H743ZIT6)
 - `STM32CubeIDE/NucleoH7TestCode/` - Nucleo board test code (STM32H753ZIT6)
+- `STM32CubeIDE/SensorsReadTest/` - IMU (ICM-40609-D) and magnetometer (MMC5983MA) read test over SPI
 
 ### NuttX RTOS
 
@@ -51,8 +52,9 @@ picocom -b 115200 /dev/cu.usbmodem*
 
 - `nuttxspace/` - Apache NuttX RTOS workspace (git submodules for nuttx kernel and apps)
 - `STM32CubeIDE/` - Baremetal STM32CubeIDE projects
-- `Doc/` - Hardware bringup guides, NuttX setup, toolchain installation
+- `Doc/` - Hardware bringup guides, NuttX setup, toolchain installation, datasheets, cheat sheets
 - `config/` - Hardware configuration (pinout.yaml, power.yaml)
+- `resources/` - Datasheets and reference documents
 
 ### Hardware
 
@@ -64,7 +66,7 @@ picocom -b 115200 /dev/cu.usbmodem*
 
 ### Dual Development Paths
 
-1. **Baremetal (STM32CubeIDE)**: For hardware validation and simple demos. Edit `.ioc` files in STM32CubeMX for peripheral configuration, code in `/Core/Src/main.c`.
+1. **Baremetal (STM32CubeIDE)**: For hardware validation and simple demos. Edit `.ioc` files in STM32CubeMX for peripheral configuration, code in `/Core/Src/main.c`. Sensor drivers live in `/Core/Inc/` and `/Core/Src/` alongside generated HAL code.
 
 2. **NuttX RTOS**: For complex applications. Configure via menuconfig, add custom apps to `nuttxspace/apps/`.
 
@@ -73,9 +75,9 @@ picocom -b 115200 /dev/cu.usbmodem*
 - **RGB LED**: PD12, PD13, PD14 (TIM4 PWM)
 - **System LED**: PD6
 - **Motor ESCs**: TIM1 PWM outputs
-- **IMU (SPI5)**: PF6-PF9, PF11
-- **Magnetometer (SPI4)**: PE2, PE5, PE6, PE11-PE14
-- **Barometer (I2C2)**: PF0, PF1
+- **IMU ICM-40609-D (SPI5)**: PF6-PF9, CS=PF10 (driver: `icm-40609-d.h/.c`)
+- **Magnetometer MMC5983MA (SPI4)**: PE2, PE5, PE6, PE11-PE14 (driver: `mmc5983ma.h/.c`)
+- **Barometer BMP390 (I2C2)**: PF0, PF1
 
 ## Toolchain Requirements
 
