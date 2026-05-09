@@ -36,6 +36,7 @@ stm32h743ZIT6:
     sck:  PE2
     miso: PE5
     mosi: PE6
+    cs: PE4
 
   spi5:   #IMU
     sck:  PF7

@@ -35,6 +35,7 @@ typedef struct {
 
 // Sensitivity constants (LSB/unit)
 #define ICM_ACCEL_SENS_8G   4096    // LSB/g at ±8g
+#define ICM_ACCEL_SENS_16G   2048   // LSB/g at ±16g
 #define ICM_GYRO_SENS_2000  16.4f   // LSB/dps at ±2000dps
 
 ICM_Status icm_init(ICM_Handle *dev);

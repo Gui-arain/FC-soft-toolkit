@@ -1,5 +1,6 @@
 "./Core/Src/icm-40609-d.o"
 "./Core/Src/main.o"
+"./Core/Src/mmc5983ma.o"
 "./Core/Src/stm32h7xx_hal_msp.o"
 "./Core/Src/stm32h7xx_it.o"
 "./Core/Src/syscalls.o"

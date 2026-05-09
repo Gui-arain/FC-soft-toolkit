@@ -22,7 +22,9 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <math.h>
+#include <stdio.h>
 #include "icm-40609-d.h"
+#include "mmc5983ma.h"
 
 /* USER CODE END Includes */
 
@@ -45,6 +47,7 @@
 
 /* Private variables ---------------------------------------------------------*/
 
+SPI_HandleTypeDef hspi4;
 SPI_HandleTypeDef hspi5;
 
 TIM_HandleTypeDef htim4;
@@ -62,20 +65,49 @@ ICM_Data imu_data;
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
+void PeriphCommonClock_Config(void);
 static void MPU_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_TIM4_Init(void);
 static void MX_SPI5_Init(void);
+static void MX_SPI4_Init(void);
 /* USER CODE BEGIN PFP */
 
 // RGB Led handling functions
 void RGB_SetColor(uint16_t red, uint16_t green, uint16_t blue);
 void RGB_Accel(ICM_Data *d);
+void RGB_Gyro(ICM_Data *d);
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+// Reroute printf to ITM_SendChar to print variables through SWO (port 0)
+int _write(int file, char *ptr, int len)
+{
+	for (int i = 0; i < len; i++)
+	{
+		ITM_SendChar(*ptr++);
+	}
+	return len;
+}
+
+// write to a defined ITM port
+void ITM_PrintPort(uint8_t port, const char *str)
+{
+  if (((ITM->TCR & ITM_TCR_ITMENA_Msk) != 0UL) &&      /* ITM enabled */
+      ((ITM->TER & (1UL << port)) != 0UL))              /* ITM Port #0 enabled */
+  {
+	  while (*str)
+		  {
+		    while (ITM->PORT[port].u32 == 0UL)
+		    {
+		      __NOP();
+		    }
+		    ITM->PORT[port].u8 = (uint8_t) *str++;
+		  }
+  }
+}
 
 /* USER CODE END 0 */
 
@@ -105,6 +137,9 @@ int main(void)
   /* Configure the system clock */
   SystemClock_Config();
 
+  /* Configure the peripherals common clocks */
+  PeriphCommonClock_Config();
+
   /* USER CODE BEGIN SysInit */
 
   /* USER CODE END SysInit */
@@ -113,6 +148,7 @@ int main(void)
   MX_GPIO_Init();
   MX_TIM4_Init();
   MX_SPI5_Init();
+  MX_SPI4_Init();
   /* USER CODE BEGIN 2 */
 
   // Initialize IMU
@@ -129,16 +165,26 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  char buf[32];
+
   while (1)
   {
     /* USER CODE END WHILE */
+
+    /* USER CODE BEGIN 3 */
 	icm_read_data(&imu, &imu_data);
 
 	RGB_Accel(&imu_data);
 
+	printf("ax: %d\r\n", imu_data.ax);
+	snprintf(buf, sizeof(buf), "ay: %d\r\n", imu_data.ay);
+	ITM_PrintPort(1, buf);
+	snprintf(buf, sizeof(buf), "az: %d\r\n", imu_data.az);
+	ITM_PrintPort(2, buf);
+
 	HAL_Delay(10); //100Hz
 
-    /* USER CODE BEGIN 3 */
+
   }
   /* USER CODE END 3 */
 }
@@ -199,6 +245,80 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief Peripherals Common Clock Configuration
+  * @retval None
+  */
+void PeriphCommonClock_Config(void)
+{
+  RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
+
+  /** Initializes the peripherals clock
+  */
+  PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_SPI4|RCC_PERIPHCLK_SPI5;
+  PeriphClkInitStruct.PLL2.PLL2M = 8;
+  PeriphClkInitStruct.PLL2.PLL2N = 80;
+  PeriphClkInitStruct.PLL2.PLL2P = 2;
+  PeriphClkInitStruct.PLL2.PLL2Q = 40;
+  PeriphClkInitStruct.PLL2.PLL2R = 2;
+  PeriphClkInitStruct.PLL2.PLL2RGE = RCC_PLL2VCIRANGE_1;
+  PeriphClkInitStruct.PLL2.PLL2VCOSEL = RCC_PLL2VCOMEDIUM;
+  PeriphClkInitStruct.PLL2.PLL2FRACN = 0;
+  PeriphClkInitStruct.Spi45ClockSelection = RCC_SPI45CLKSOURCE_PLL2;
+  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
+/**
+  * @brief SPI4 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_SPI4_Init(void)
+{
+
+  /* USER CODE BEGIN SPI4_Init 0 */
+
+  /* USER CODE END SPI4_Init 0 */
+
+  /* USER CODE BEGIN SPI4_Init 1 */
+
+  /* USER CODE END SPI4_Init 1 */
+  /* SPI4 parameter configuration*/
+  hspi4.Instance = SPI4;
+  hspi4.Init.Mode = SPI_MODE_MASTER;
+  hspi4.Init.Direction = SPI_DIRECTION_2LINES;
+  hspi4.Init.DataSize = SPI_DATASIZE_8BIT;
+  hspi4.Init.CLKPolarity = SPI_POLARITY_LOW;
+  hspi4.Init.CLKPhase = SPI_PHASE_1EDGE;
+  hspi4.Init.NSS = SPI_NSS_SOFT;
+  hspi4.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+  hspi4.Init.FirstBit = SPI_FIRSTBIT_MSB;
+  hspi4.Init.TIMode = SPI_TIMODE_DISABLE;
+  hspi4.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
+  hspi4.Init.CRCPolynomial = 0x0;
+  hspi4.Init.NSSPMode = SPI_NSS_PULSE_ENABLE;
+  hspi4.Init.NSSPolarity = SPI_NSS_POLARITY_LOW;
+  hspi4.Init.FifoThreshold = SPI_FIFO_THRESHOLD_01DATA;
+  hspi4.Init.TxCRCInitializationPattern = SPI_CRC_INITIALIZATION_ALL_ZERO_PATTERN;
+  hspi4.Init.RxCRCInitializationPattern = SPI_CRC_INITIALIZATION_ALL_ZERO_PATTERN;
+  hspi4.Init.MasterSSIdleness = SPI_MASTER_SS_IDLENESS_00CYCLE;
+  hspi4.Init.MasterInterDataIdleness = SPI_MASTER_INTERDATA_IDLENESS_00CYCLE;
+  hspi4.Init.MasterReceiverAutoSusp = SPI_MASTER_RX_AUTOSUSP_DISABLE;
+  hspi4.Init.MasterKeepIOState = SPI_MASTER_KEEP_IO_STATE_DISABLE;
+  hspi4.Init.IOSwap = SPI_IO_SWAP_DISABLE;
+  if (HAL_SPI_Init(&hspi4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN SPI4_Init 2 */
+
+  /* USER CODE END SPI4_Init 2 */
+
 }
 
 /**
@@ -329,9 +449,15 @@ static void MX_GPIO_Init(void)
   /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOF_CLK_ENABLE();
   __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_4, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOF, GPIO_PIN_10, GPIO_PIN_SET);
@@ -339,11 +465,18 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOD, GPIO_PIN_6, GPIO_PIN_RESET);
 
+  /*Configure GPIO pin : PE4 */
+  GPIO_InitStruct.Pin = GPIO_PIN_4;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_MEDIUM;
+  HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+
   /*Configure GPIO pin : PF10 */
   GPIO_InitStruct.Pin = GPIO_PIN_10;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_MEDIUM;
   HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PD6 */
@@ -383,6 +516,30 @@ void RGB_Accel(ICM_Data *d)
     uint16_t red_intensity   = (uint16_t)(ax * 999.0f);
     uint16_t green_intensity = (uint16_t)(ay * 999.0f);
     uint16_t blue_intensity  = (uint16_t)(az * 999.0f);
+
+	RGB_SetColor(red_intensity, green_intensity, blue_intensity);
+}
+
+void RGB_Gyro(ICM_Data *d)
+{
+    // convert to g, take absolute value
+    float gx = fabsf((float)d->gx / ICM_GYRO_SENS_2000);
+    float gy = fabsf((float)d->gy / ICM_GYRO_SENS_2000);
+    float gz = fabsf((float)d->gz / ICM_GYRO_SENS_2000);
+
+    // clamp to 0-180dps
+    if (gx > 360.0f) gx = 360.0f;
+    if (gy > 360.0f) gy = 360.0f;
+    if (gz > 360.0f) gz = 360.0f;
+
+    if (gx < 5.0f) gx = 0.0f;
+    if (gy < 5.0f) gy = 0.0f;
+    if (gz < 5.0f) gz = 0.0f;
+
+    // Scale to 0-999
+    uint16_t red_intensity   = (uint16_t)(gx/360.0f * 999.0f);
+    uint16_t green_intensity = (uint16_t)(gy/360.0f * 999.0f);
+    uint16_t blue_intensity  = (uint16_t)(gz/360.0f * 999.0f);
 
 	RGB_SetColor(red_intensity, green_intensity, blue_intensity);
 }

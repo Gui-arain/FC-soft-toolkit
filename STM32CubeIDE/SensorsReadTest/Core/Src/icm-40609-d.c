@@ -62,8 +62,8 @@ ICM_Status icm_init(ICM_Handle *dev) {
     // GYRO_CONFIG0: FSR=0b000 (±2000), ODR=0b0110 (1kHz)
     icm_write(dev, REG_GYRO_CFG0, 0x06);
 
-    // 6. Accel: ±8g, 1kHz ODR
-    // ACCEL_CONFIG0: FSR=0b001 (±8g), ODR=0b0110 (1kHz)
+    // 6. Accel: ±16g, 1kHz ODR
+    // ACCEL_CONFIG0: FSR=0b001 (±16g), ODR=0b0110 (1kHz)
     icm_write(dev, REG_ACCEL_CFG0, 0x26);
 
     return ICM_OK;

@@ -1,0 +1,10 @@
+../Core/Src/mmc5983ma.c:6:20:cs_low	16	static
+../Core/Src/mmc5983ma.c:11:20:cs_high	16	static
+../Core/Src/mmc5983ma.c:23:13:reg_write	24	static
+../Core/Src/mmc5983ma.c:39:13:reg_read	40	static
+../Core/Src/mmc5983ma.c:55:13:reg_read_burst	64	static
+../Core/Src/mmc5983ma.c:80:6:MMC5983_Init	24	static
+../Core/Src/mmc5983ma.c:107:9:MMC5983_ReadProductID	24	static
+../Core/Src/mmc5983ma.c:120:6:MMC5983_DoSet	16	static
+../Core/Src/mmc5983ma.c:132:6:MMC5983_DoReset	16	static
+../Core/Src/mmc5983ma.c:151:6:MMC5983_ReadData	48	static
