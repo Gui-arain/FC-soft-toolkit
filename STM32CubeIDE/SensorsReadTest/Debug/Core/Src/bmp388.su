@@ -1,0 +1,10 @@
+../Core/Src/bmp388.c:16:22:reg_write	32	static
+../Core/Src/bmp388.c:24:22:reg_read	32	static
+../Core/Src/bmp388.c:41:22:load_calibration	72	static
+../Core/Src/bmp388.c:90:14:compensate_temperature	32	static
+../Core/Src/bmp388.c:101:14:compensate_pressure	48	static
+../Core/Src/bmp388.c:126:22:apply_config	24	static
+../Core/Src/bmp388.c:155:15:BMP388_SoftReset	24	static
+../Core/Src/bmp388.c:163:15:BMP388_Init	24	static
+../Core/Src/bmp388.c:186:15:BMP388_SetMode	24	static
+../Core/Src/bmp388.c:198:15:BMP388_Read	56	static

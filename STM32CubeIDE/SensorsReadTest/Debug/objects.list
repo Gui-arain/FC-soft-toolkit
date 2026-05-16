@@ -1,3 +1,4 @@
+"./Core/Src/bmp388.o"
 "./Core/Src/icm-40609-d.o"
 "./Core/Src/main.o"
 "./Core/Src/mmc5983ma.o"

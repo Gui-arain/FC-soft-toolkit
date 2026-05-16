@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include "icm-40609-d.h"
 #include "mmc5983ma.h"
+#include "bmp388.h"
 
 /* USER CODE END Includes */
 
@@ -47,6 +48,8 @@
 
 /* Private variables ---------------------------------------------------------*/
 
+I2C_HandleTypeDef hi2c2;
+
 SPI_HandleTypeDef hspi4;
 SPI_HandleTypeDef hspi5;
 
@@ -67,6 +70,19 @@ MMC5983_Handle mag = {
 		.cs_pin = GPIO_PIN_4
 };
 MMC5983_Data mag_data; // Initialise the mag data struct
+// Define the bar wiring
+BMP388_Handle bmp = {
+    .hi2c     = &hi2c2,
+    .dev_addr = BMP388_I2C_ADDR_SDO_HIGH,   /* SDO tied to VDDIO */
+    .cfg = {
+        .osr_p = BMP388_OSR_X8,
+        .osr_t = BMP388_OSR_X1,
+        .iir   = BMP388_IIR_3,    /* coeff 3 — good balance */
+        .odr   = BMP388_ODR_25,   /* 25 Hz in normal mode   */
+        .mode  = BMP388_MODE_NORMAL,
+    },
+};
+
 
 /* USER CODE END PV */
 
@@ -78,6 +94,7 @@ static void MX_GPIO_Init(void);
 static void MX_TIM4_Init(void);
 static void MX_SPI5_Init(void);
 static void MX_SPI4_Init(void);
+static void MX_I2C2_Init(void);
 /* USER CODE BEGIN PFP */
 
 // RGB Led handling functions
@@ -156,8 +173,14 @@ int main(void)
   MX_TIM4_Init();
   MX_SPI5_Init();
   MX_SPI4_Init();
+  MX_I2C2_Init();
   /* USER CODE BEGIN 2 */
-
+  /*
+  for (uint8_t addr = 1; addr < 128; addr++) {
+        if (HAL_I2C_IsDeviceReady(&hi2c2, addr << 1, 2, 10) == HAL_OK)
+            printf("[I2C SCAN] Device at 0x%02X\r\n", addr);
+    }
+*/
   // Initialize IMU
   if (icm_init(&imu) != ICM_OK) {
 	  printf("[ICM-40609-D] INIT FAILED\r\n");
@@ -169,6 +192,14 @@ int main(void)
       printf("[MMC5983] INIT FAILED\r\n");
       HAL_GPIO_WritePin(GPIOD, GPIO_PIN_6, GPIO_PIN_SET);  // Turn on error LED
       Error_Handler();
+  }
+
+  BMP388_Status st = BMP388_Init(&bmp);
+    if (st != BMP388_OK) {
+      uint32_t i2c_err = HAL_I2C_GetError(&hi2c2);
+      printf("[BMP388] INIT FAILED status=%d i2c_err=0x%08lX\r\n", (int)st, i2c_err);
+	  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_6, GPIO_PIN_SET);  // Turn on error LED
+	  Error_Handler();
   }
 
 
@@ -187,38 +218,39 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	//icm_read_data(&imu, &imu_data);
+	icm_read_data(&imu, &imu_data);
 
-	//RGB_Accel(&imu_data);
+	RGB_Accel(&imu_data);
 
 	// Print on a port:
 	//snprintf(buf, sizeof(buf), "ay: %d\r\n", imu_data.ay);
 	//ITM_PrintPort(1, buf);
 
-    if (MMC5983_ReadData(&mag, &mag_data))
-    {
-        printf("[MMC5983] X=%+7.3f G  Y=%+7.3f G  Z=%+7.3f G  T=%.1f C"
-               "  (raw X=%lu Y=%lu Z=%lu)\r\n",
-               mag_data.x_gauss, mag_data.y_gauss, mag_data.z_gauss,
-			   mag_data.temp_celsius,
-			   mag_data.raw_x,   mag_data.raw_y,   mag_data.raw_z);
-
-        /* ── Sanity checks ───────────────────────────────────────── */
+    //if (MMC5983_ReadData(&mag, &mag_data))
+    //{
+    //    printf("[MMC5983] X=%+7.3f G  Y=%+7.3f G  Z=%+7.3f G  T=%.1f C"
+    //           "  (raw X=%lu Y=%lu Z=%lu)\r\n",
+    //           mag_data.x_gauss, mag_data.y_gauss, mag_data.z_gauss,
+	//		   mag_data.temp_celsius,
+	//		   mag_data.raw_x,   mag_data.raw_y,   mag_data.raw_z);
+	//
+	//	/* ── Sanity checks ───────────────────────────────────────── */
         /* Earth's field is ~0.25–0.65 G.  Flag if totally out of range. */
-        float magnitude = mag_data.x_gauss * mag_data.x_gauss
-                        + mag_data.y_gauss * mag_data.y_gauss
-                        + mag_data.z_gauss * mag_data.z_gauss;
+    //  float magnitude = mag_data.x_gauss * mag_data.x_gauss
+    //                  + mag_data.y_gauss * mag_data.y_gauss
+    //                  + mag_data.z_gauss * mag_data.z_gauss;
         /* magnitude is |B|^2 here – sqrt not strictly needed for a range check */
-        if (magnitude < 0.01f || magnitude > 1.0f) {
-            printf("[MMC5983] WARNING: field magnitude out of expected range!\r\n");
-        }
-    }
-    else
-    {
-        printf("[MMC5983] Read error\r\n");
-    }
+    //  if (magnitude < 0.01f || magnitude > 1.0f) {
+    //        printf("[MMC5983] WARNING: field magnitude out of expected range!\r\n");
+    //    }
+    //}
+    //else
+    //{
+    //    printf("[MMC5983] Read error\r\n");
+    //}
 
-    HAL_Delay(500);  /* 2 Hz print rate – adjust freely */
+
+    HAL_Delay(10);
 
   }
   /* USER CODE END 3 */
@@ -306,6 +338,54 @@ void PeriphCommonClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief I2C2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C2_Init(void)
+{
+
+  /* USER CODE BEGIN I2C2_Init 0 */
+
+  /* USER CODE END I2C2_Init 0 */
+
+  /* USER CODE BEGIN I2C2_Init 1 */
+
+  /* USER CODE END I2C2_Init 1 */
+  hi2c2.Instance = I2C2;
+  hi2c2.Init.Timing = 0x00000004;
+  hi2c2.Init.OwnAddress1 = 0;
+  hi2c2.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c2.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c2.Init.OwnAddress2 = 0;
+  hi2c2.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
+  hi2c2.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c2.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Analogue filter
+  */
+  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c2, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Digital filter
+  */
+  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c2, 0) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C2_Init 2 */
+
+  /* USER CODE END I2C2_Init 2 */
+
 }
 
 /**
