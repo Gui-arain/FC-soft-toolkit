@@ -1,0 +1,3 @@
+ifneq ($(CONFIG_FC_CORE),)
+CONFIGURED_APPS += $(APPDIR)/fc-stack/fc_core
+endif

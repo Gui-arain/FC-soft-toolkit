@@ -97,12 +97,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Doc/NuttX setup 🥜.md",
+                "file": "Doc/helpers/C++ Cheat Sheet.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "NuttX setup 🥜"
+              "title": "C++ Cheat Sheet"
             }
           }
         ],
@@ -270,17 +270,19 @@
   },
   "active": "6dbe9dc09ca20c3d",
   "lastOpenFiles": [
+    "nuttxspace/fc-stack/estimator/estimator_main.cpp",
+    "nuttxspace/fc-stack/estimator/Makefile",
+    "nuttxspace/fc-stack/estimator/Make.defs",
+    "nuttxspace/fc-stack/estimator/Kconfig",
+    "nuttxspace/fc-stack/fc_core/Makefile",
+    "nuttxspace/fc-stack/estimator",
+    "nuttxspace/boards/arm/stm32h7/shirley-fc-dev-board/src/Makefile",
+    "nuttxspace/boards/arm/stm32h7/shirley-fc-dev-board/include/board.h",
+    "nuttxspace/boards/arm/stm32h7/shirley-fc-dev-board/configs",
+    "nuttxspace/boards/arm/stm32h7/shirley-fc-dev-board/src",
+    "nuttxspace/boards/arm/stm32h7/shirley-fc-dev-board/include",
+    "Doc/NuttX setup 🥜.md",
     "Doc/helpers/C++ Cheat Sheet.md",
-    "nuttx/boards/z80/z8/z8f64200100kit/scripts/Make.defs",
-    "nuttx/boards/z80/z8/z8f64200100kit/src/z8_leds.c",
-    "nuttx/boards/z80/z8/z8f64200100kit/src/z8_boot.c",
-    "nuttx/boards/z80/z8/z8f64200100kit/src/Makefile",
-    "nuttx/boards/z80/z8/z8f64200100kit/include/board.h",
-    "nuttx/boards/z80/z8/z8f64200100kit/configs/ostest",
-    "nuttx/boards/z80/z8/z8encore000zco/src/z8_leds.c",
-    "nuttx/boards/z80/z8/z8encore000zco/src/z8_boot.c",
-    "nuttx/boards/z80/z8/z8encore000zco/src/Makefile",
-    "nuttx/boards/z80/z8/z8encore000zco/scripts/Make.defs",
     "nuttx/arch/arm/src/nrf52/sdc/README.md",
     "nuttx/arch/arm/src/nrf53/sdc/README.md",
     "nuttx/README.md",
@@ -309,7 +311,6 @@
     "Doc/IMU readings.md",
     "Doc/Setup MacOS 🍎.md",
     "Doc/Setup Linux 🐧.md",
-    "Doc/NuttX setup 🥜.md",
     "Doc/Capture.md",
     "Doc/Vocabulary.md",
     "nuttxspace/apps/wireless/wapi/README.md",

@@ -1,0 +1,2 @@
+source "$(APPDIR)/fc-stack/fc_core/Kconfig"
+source "$(APPDIR)/fc-stack/estimator/Kconfig"

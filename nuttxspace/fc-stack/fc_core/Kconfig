@@ -1,0 +1,5 @@
+config FC_CORE
+    tristate "Flight Controller Core"
+    default n
+    ---help---
+        Main FC scheduling and control loop
