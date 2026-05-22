@@ -1,0 +1,2 @@
+ARCH_SRCDIR = $(TOPDIR)/boards/arm/stm32h7/shirley-fc-dev-board/src
+ARCH_INCDIR = $(TOPDIR)/boards/arm/stm32h7/shirley-fc-dev-board/include

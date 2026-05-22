@@ -111,12 +111,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "FC Project structure.md",
+                "file": "Doc/helpers/Vocabulary.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "FC Project structure"
+              "title": "Vocabulary"
             }
           }
         ],
@@ -284,9 +284,12 @@
   },
   "active": "9f6d51c498fb4949",
   "lastOpenFiles": [
+    "FC Project structure.md",
+    "nuttxspace/boards/arm/stm32h7/shirley-fc-dev-board/src/stm32_appinit.c",
+    "nuttxspace/boards/arm/stm32h7/shirley-fc-dev-board/src/stm32_bringup.c",
+    "nuttxspace/boards/arm/stm32h7/shirley-fc-dev-board/src/stm32_boot.c",
     "FC Soft Dev roadmap.md",
     "CLAUDE.md",
-    "FC Project structure.md",
     "Doc/NuttX Board Port.md",
     "Doc/helpers/C++ Cheat Sheet.md",
     "nuttxspace/boards/arm/stm32h7/shirley-fc-dev-board/configs/nsh/defconfig",
@@ -296,9 +299,6 @@
     "nuttxspace/fc-stack/estimator/Makefile",
     "nuttxspace/fc-stack/estimator/Make.defs",
     "nuttxspace/fc-stack/estimator/Kconfig",
-    "nuttxspace/fc-stack/fc_core/Makefile",
-    "nuttxspace/fc-stack/estimator",
-    "nuttxspace/boards/arm/stm32h7/shirley-fc-dev-board/src/Makefile",
     "Doc/NuttX setup 🥜.md",
     "nuttx/arch/arm/src/nrf52/sdc/README.md",
     "nuttx/arch/arm/src/nrf53/sdc/README.md",
@@ -328,7 +328,6 @@
     "Doc/Setup MacOS 🍎.md",
     "Doc/Setup Linux 🐧.md",
     "Doc/Capture.md",
-    "Doc/Vocabulary.md",
-    "nuttxspace/apps/wireless/wapi/README.md"
+    "Doc/Vocabulary.md"
   ]
 }
