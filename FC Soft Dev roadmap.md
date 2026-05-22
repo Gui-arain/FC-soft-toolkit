@@ -4,7 +4,7 @@ Tasks:
 - [x] Setup STM32 build/flash/debug on MacOS
 - [x] Install Nuttx on STM32H7
 - [ ] Run a custom app on Nuttx
-- [ ] read IMU data Baremetal
+- [x] read IMU data Baremetal
 - [ ] read IMU data Nuttx
 - [ ] extended Kalman filter (EKF) implementation
 - [ ] ESKF implementation
