@@ -11,6 +11,59 @@ RCC:
 ### Config for first bringup
 ![Clock_config_HSI.png](imgs/Clock_config_HSI.png)
 
+### Config for Sensors tests
+
+CPU at 80 MHz — SPI4/5 and I2C1/2/3 kernel clocks at 4 MHz.
+
+**Clock source:** HSE — 16 MHz external crystal (no bypass)
+
+**PLL source:** HSE, DIVM = 8 → 2 MHz reference input (all three PLLs)
+
+| PLL | N | Output | Divisor | Frequency | Routed to |
+|-----|---|--------|---------|-----------|-----------|
+| PLL1 | 80 | P | /2 | **80 MHz** | SYSCLK |
+| PLL1 | 80 | Q | /2 | 80 MHz | SDMMC (reserved) |
+| PLL2 | 80 | Q | /40 | **4 MHz** | SPI4, SPI5 |
+| PLL3 | 80 | Q | /2 | 80 MHz | — |
+| PLL3 | 80 | R | /40 | **4 MHz** | I2C1, I2C2, I2C3 |
+
+> All three PLLs share the same VCO: (16 MHz / 8) × 80 = **160 MHz**
+
+**Bus clocks**
+
+| Clock | Prescaler | Frequency |
+|-------|-----------|-----------|
+| SYSCLK | — | 80 MHz |
+| CPUCLK / HCLK | /1 | 80 MHz |
+| PCLK1–4 (APB1–4) | /2 | 40 MHz |
+
+**Flash wait states:** 1 (VOS1, ACLK ≤ 140 MHz)
+
+**NuttX register definitions**
+
+```c
+/* PLL1 — System clock */
+#define STM32_PLLCFG_PLL1M  RCC_PLLCKSELR_DIVM1(8)
+#define STM32_PLLCFG_PLL1N  RCC_PLL1DIVR_N1(80)
+#define STM32_PLLCFG_PLL1P  RCC_PLL1DIVR_P1(2)   /* SYSCLK = 80 MHz */
+#define STM32_PLLCFG_PLL1Q  RCC_PLL1DIVR_Q1(2)   /* 80 MHz, reserved for SDMMC */
+#define STM32_PLLCFG_PLL1R  RCC_PLL1DIVR_R1(2)
+
+/* PLL2 — SPI kernel clock */
+#define STM32_PLLCFG_PLL2M  RCC_PLLCKSELR_DIVM2(8)
+#define STM32_PLLCFG_PLL2N  RCC_PLL2DIVR_N2(80)
+#define STM32_PLLCFG_PLL2P  RCC_PLL2DIVR_P2(2)
+#define STM32_PLLCFG_PLL2Q  RCC_PLL2DIVR_Q2(40)  /* SPI4/5 = 4 MHz */
+#define STM32_PLLCFG_PLL2R  RCC_PLL2DIVR_R2(2)
+
+/* PLL3 — I2C kernel clock */
+#define STM32_PLLCFG_PLL3M  RCC_PLLCKSELR_DIVM3(8)
+#define STM32_PLLCFG_PLL3N  RCC_PLL3DIVR_N3(80)
+#define STM32_PLLCFG_PLL3P  RCC_PLL3DIVR_P3(2)
+#define STM32_PLLCFG_PLL3Q  RCC_PLL3DIVR_Q3(2)
+#define STM32_PLLCFG_PLL3R  RCC_PLL3DIVR_R3(40)  /* I2C1/2/3 = 4 MHz */
+```
+
 ## RGB Led config 💡
 
 CubeMX Configuration — RGB LED (Common Anode) with TIM4
