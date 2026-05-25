@@ -38,7 +38,7 @@ void stm32_board_initialize(void)
 {
   /* The STM32H743 starts up on HSI (64 MHz internal oscillator).
    * stm32_clockconfig() switches to HSE + PLL1 as configured in board.h.
-   * With 16 MHz HSE, DIVM1=4, DIVN1=40, DIVP1=2 → 80 MHz SYSCLK.
+   * With 16 MHz HSE, DIVM1=8, DIVN1=80, DIVP1=2 → 80 MHz SYSCLK.
    */
 
   stm32_clockconfig();
@@ -58,6 +58,9 @@ void stm32_board_initialize(void)
   stm32_gpiowrite(GPIO_PORTA, true);  /* USART2 TX/RX typically on PA2/PA3 */
   stm32_gpiowrite(GPIO_PORTB, true);
   stm32_gpiowrite(GPIO_PORTC, true);
+  stm32_gpiowrite(GPIO_PORTD, true);
+  stm32_gpiowrite(GPIO_PORTE, true);
+  stm32_gpiowrite(GPIO_PORTF, true);
 
   /* Initialize the serial console UART early so boot messages
    * are visible from the very start.
