@@ -1,0 +1,7 @@
+config SENSORS_ICM40609D
+    bool "InvenSense ICM-40609-D accelerometer/gyroscope"
+    default n
+    select SPI
+    ---help---
+        Enable driver for the ICM-40609-D 6-axis IMU.
+        Registers /dev/uorb/sensor_accel0 and sensor_gyro0.

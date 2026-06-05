@@ -141,3 +141,8 @@
 - **RTC (Real-Time Clock)**: Low-power clock keeping track of time/date, often running during low-power modes.
 
 ---
+- Context switching: Context switching is the process where the CPU stops running one process, saves its current state, and loads the saved state of another process so that multiple processes can share the CPU effectively
+
+- Round Robin scheduling: Round Robin Scheduling is a method used by operating systems to manage the execution time of multiple processes that are competing for CPU attention. It is called "round robin" because the system rotates through all the processes, allocating each of them a fixed time slice or "quantum", regardless of their priority. The primary goal of this scheduling method is to ensure that all processes are given an equal opportunity to execute, promoting fairness among tasks.
+
+- preemptive scheduling: 

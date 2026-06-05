@@ -1,5 +1,5 @@
 /****************************************************************************
- * boards/arm/stm32h7/fc-dev/src/stm32_appinit.c
+ * boards/arm/stm32h7/shirley-fc-dev-board/src/stm32_appinit.c
  *
  * Application-level initialization for the Shirley FC Dev Board (STM32H743)
  *

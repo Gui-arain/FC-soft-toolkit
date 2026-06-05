@@ -97,12 +97,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Doc/NuttX Board Port.md",
+                "file": "Doc/helpers/Vocabulary.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "NuttX Board Port"
+              "title": "Vocabulary"
             }
           }
         ],
@@ -270,27 +270,27 @@
   },
   "active": "6dbe9dc09ca20c3d",
   "lastOpenFiles": [
+    "FC Project structure.md",
+    "nuttxspace/drivers/sensors/icm40609d.h",
+    "nuttxspace/drivers/sensors/icm40609d.c",
+    "nuttxspace/drivers/sensors/Makefile",
+    "nuttxspace/drivers/sensors/Make.defs",
+    "nuttxspace/drivers/sensors/Kconfig",
+    "nuttxspace/drivers/sensors",
+    "nuttxspace/drivers/Kconfig",
+    "nuttxspace/drivers",
+    "Doc/NuttX Board Port.md",
     "Doc/JLink Cheatsheet ⛓️.md",
     "Doc/IMU readings.md",
     "Doc/FC First Bringup 🌱.md",
-    "Doc/NuttX Board Port.md",
     "Doc/um2217-description-of-stm32h7-hal-and-lowlayer-drivers-stmicroelectronics.pdf",
     "Doc/helpers/C++ Cheat Sheet.md",
     "Doc/helpers/C++ cheat sheet 🛠️.md",
     "Doc/STM32 Settings ⚙️.md",
     "Doc/helpers/Vocabulary.md",
-    "FC Project structure.md",
     "nuttxspace/boards/arm/stm32h7/shirley-fc-dev-board/src/stm32_appinit.c",
-    "nuttxspace/boards/arm/stm32h7/shirley-fc-dev-board/src/stm32_bringup.c",
-    "nuttxspace/boards/arm/stm32h7/shirley-fc-dev-board/src/stm32_boot.c",
     "FC Soft Dev roadmap.md",
     "CLAUDE.md",
-    "nuttxspace/boards/arm/stm32h7/shirley-fc-dev-board/configs/nsh/defconfig",
-    "nuttxspace/boards/arm/stm32h7/shirley-fc-dev-board/configs/nsh/Make.defs",
-    "nuttxspace/boards/arm/stm32h7/shirley-fc-dev-board/configs/nsh",
-    "nuttxspace/fc-stack/estimator/estimator_main.cpp",
-    "nuttxspace/fc-stack/estimator/Makefile",
-    "nuttxspace/fc-stack/estimator/Make.defs",
     "Doc/NuttX setup 🥜.md",
     "nuttx/arch/arm/src/nrf52/sdc/README.md",
     "nuttx/arch/arm/src/nrf53/sdc/README.md",

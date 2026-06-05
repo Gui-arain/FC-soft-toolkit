@@ -23,6 +23,15 @@ your-project/
 │               ├── defconfig          ← CONFIG_HAVE_CXX=y etc.
 │               └── Make.defs
 │
+├── drivers/                           ← your custom drivers live here 
+│   ├── Kconfig                        ← sources all driver Kconfigs 
+│   └── sensors/ 
+│       ├── Kconfig 
+│       ├── Make.defs 
+│       ├── Makefile 
+│       ├── icm40609d.c 
+│       └── icm40609d.h
+│
 ├── fc-stack/
 │   ├── Kconfig                        ← sources all module Kconfigs
 │   ├── Make.defs                      ← registers enabled modules
