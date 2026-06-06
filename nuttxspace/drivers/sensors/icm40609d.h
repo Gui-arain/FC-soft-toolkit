@@ -18,38 +18,15 @@
 
 struct spi_dev_s;
 
-/* Specifies the initial chip configuration and location.
+/* Specifies the initial chip configuration and bus wiring.
  *
- * The chip supports both SPI and I2C interfaces, but you wouldn't use
- * both at the same time on the same chip. It isn't an error to have
- * one chip of each flavor in the system, though, so it's not an
- * either-or configuration item.
+ * This driver supports SPI only.  Zero-initialise the struct and then
+ * set the spi/spi_devid fields:
  *
- * Important note :
- *
- * The driver determines which interface type to use according to
- * which of the two groups of fields is non-NULL.  Since support for
- * I2C and SPI are individually configurable, however, users should
- * let the compiler clear unused fields instead of setting unused
- * fields to NULL directly. For example, if using SPI and a
- * stack-allocated instance:
- *
- *    struct mpu_config_s mpuc;
- *    memset(&mpuc, 0, sizeof(mpuc)); * sets i2c to NULL, if present *
- *    mpuc.spi = ...;
- *
- * Or, if using dynamic memory allocation and I2C:
- *
- *    struct mpu_config_s* mpuc;
- *    mpuc = kmm_malloc(sizeof(*mpuc));
- *    memset(mpuc, 0, sizeof(*mpuc)); * sets spi to NULL, if present *
- *    mpuc.i2c = ...;
- *
- * The above examples will avoid compile-time errors unless the user
- * forgets to enable their preferred interface type, and will allow
- * them to disable or enable the unused interface type without
- * changing their code.
- *
+ *    struct icm_config_s cfg;
+ *    memset(&cfg, 0, sizeof(cfg));
+ *    cfg.spi      = spi_bus;
+ *    cfg.spi_devid = SPIDEV_IMU(0);
  */
 
 struct icm_config_s
@@ -70,16 +47,15 @@ struct icm_config_s
  ****************************************************************************/
 
 /****************************************************************************
- * Name: mpu60x0_register
+ * Name: icm40609d_register
  *
  * Description:
- *   Declares the existence of an mpu60x0 chip, wired according to
- *   config; creates an interface to it at path.
+ *   Registers the ICM-40609-D at devpath.
  *
  * Returns 0 on success, or negative errno.
  *
  ****************************************************************************/
 
-int mpu60x0_register(FAR const char *path, FAR struct mpu_config_s *config);
+int icm40609d_register(FAR const char *path, FAR struct icm_config_s *config);
 
 #endif /* __INCLUDE_NUTTX_SENSORS_ICM40609D_H */

@@ -97,12 +97,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Doc/IMU readings.md",
+                "file": "Doc/drivers/ICM-40609-D Driver.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "IMU readings"
+              "title": "ICM-40609-D Driver"
             }
           }
         ],
@@ -270,29 +270,33 @@
   },
   "active": "6dbe9dc09ca20c3d",
   "lastOpenFiles": [
-    "Doc/JLink Cheatsheet ⛓️.md",
+    "nuttxspace/boards/arm/stm32h7/shirley-fc-dev-board/src/stm32_appinit.c.tmp.8036.355fefbc76e0",
+    "nuttxspace/boards/arm/stm32h7/shirley-fc-dev-board/src/stm32_spi.c",
+    "nuttxspace/boards/arm/stm32h7/shirley-fc-dev-board/src/stm32_spi.c.tmp.8036.989cab99313b",
+    "nuttxspace/boards/arm/stm32h7/shirley-fc-dev-board/src/fc-dev.h",
+    "Doc/Setup MacOS 🍎.md",
+    "Doc/drivers/ICM-40609-D Driver.md",
+    "Doc/drivers",
+    "Doc/ICM-40609-D Driver.md",
+    "FC Project structure.md",
     "Doc/NuttX Board Port.md",
+    "Doc/NuttX setup 🥜.md",
+    "Doc/STM32 Settings ⚙️.md",
     "Doc/Sensors Settings 📐.md",
+    "Doc/IMU readings.md",
+    "Doc/JLink Cheatsheet ⛓️.md",
     "Doc/um2217-description-of-stm32h7-hal-and-lowlayer-drivers-stmicroelectronics.pdf",
     "Doc/helpers/Vocabulary.md",
-    "FC Project structure.md",
     "nuttxspace/drivers/sensors/icm40609d.h",
     "nuttxspace/drivers/sensors/icm40609d.c",
     "nuttxspace/drivers/sensors/Makefile",
     "nuttxspace/drivers/sensors/Make.defs",
     "nuttxspace/drivers/sensors/Kconfig",
-    "nuttxspace/drivers/sensors",
-    "nuttxspace/drivers/Kconfig",
-    "nuttxspace/drivers",
-    "Doc/IMU readings.md",
     "Doc/FC First Bringup 🌱.md",
     "Doc/helpers/C++ Cheat Sheet.md",
     "Doc/helpers/C++ cheat sheet 🛠️.md",
-    "Doc/STM32 Settings ⚙️.md",
-    "nuttxspace/boards/arm/stm32h7/shirley-fc-dev-board/src/stm32_appinit.c",
     "FC Soft Dev roadmap.md",
     "CLAUDE.md",
-    "Doc/NuttX setup 🥜.md",
     "nuttx/arch/arm/src/nrf52/sdc/README.md",
     "nuttx/arch/arm/src/nrf53/sdc/README.md",
     "nuttx/README.md",
@@ -311,10 +315,6 @@
     "nuttx/CONTRIBUTING.md",
     "[Doc/JLink.md",
     "Doc/JLink.md",
-    "Doc/STM32.md",
-    "STM32CubeIDE/LedBlinkTest.md",
-    "Doc/Setup MacOS 🍎.md",
-    "Doc/Setup Linux 🐧.md",
-    "Doc/Capture.md"
+    "Doc/STM32.md"
   ]
 }
