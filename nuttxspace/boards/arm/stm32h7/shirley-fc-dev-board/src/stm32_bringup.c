@@ -53,13 +53,7 @@
 
 #define FC_BARO_I2C_BUS      2
 
-/* CS GPIO pins — must match pinout.yaml */
-
-#define GPIO_MAG_CS   (GPIO_OUTPUT | GPIO_PUSHPULL | GPIO_SPEED_50MHz | \
-                       GPIO_OUTPUT_SET | GPIO_PORTE | GPIO_PIN4)   /* PE4 */
-
-#define GPIO_IMU_CS   (GPIO_OUTPUT | GPIO_PUSHPULL | GPIO_SPEED_50MHz | \
-                       GPIO_OUTPUT_SET | GPIO_PORTF | GPIO_PIN10)  /* PF10 */
+/* GPIO_MAG_CS and GPIO_IMU_CS are defined in fc-dev.h */
 
 /****************************************************************************
  * Private Functions

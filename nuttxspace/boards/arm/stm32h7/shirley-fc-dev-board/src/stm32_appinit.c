@@ -28,12 +28,14 @@
 #include <nuttx/config.h>
 
 #include <stdio.h>
+#include <string.h>
 #include <syslog.h>
 #include <errno.h>
 
 #include <nuttx/board.h>
 #include <nuttx/spi/spi.h>
 #include <nuttx/i2c/i2c_master.h>
+#include <nuttx/sensors/icm40609d.h>
 
 #include <arch/board/board.h>
 #include "stm32_gpio.h"
@@ -73,23 +75,14 @@
  * Description:
  *   Register the ICM-40609-D IMU driver on SPI5.
  *
- * TODO: ICM-40609-D driver does not exist in upstream NuttX.
- *   Porting path:
- *     1. Copy drivers/sensors/icm42688.c to drivers/sensors/icm40609.c
- *     2. Diff the ICM-42688 and ICM-40609-D datasheets — WHO_AM_I differs
- *        (ICM-40609-D = 0x3B), and the full-scale range defaults differ
- *        (ICM-40609-D supports up to ±4000 dps gyro, ±32g accel)
- *     3. Update register map constants and WHO_AM_I check
- *     4. Add Kconfig entry CONFIG_SENSORS_ICM40609
- *     5. Replace the stub below with:
- *          ret = icm40609_register("/dev/imu0", spi, IMU_DEVNO);
  *
  ****************************************************************************/
 
 static int fc_imu_register(void)
 {
   FAR struct spi_dev_s *spi;
-  int ret = OK;
+  struct icm_config_s cfg;
+  int ret;
 
   spi = stm32_spibus_initialize(FC_IMU_SPI_BUS);
   if (spi == NULL)
@@ -99,18 +92,20 @@ static int fc_imu_register(void)
       return -ENODEV;
     }
 
-  /* TODO: Replace with icm40609_register() once driver is ported.
-   *
-   * The SPI bus handle is ready. CS (PF10) was configured in
-   * stm32_bringup.c. Your driver's lower-half should assert/deassert
-   * CS via stm32_gpiowrite(GPIO_IMU_CS, false/true).
-   */
+  memset(&cfg, 0, sizeof(cfg));
+  cfg.spi      = spi;
+  cfg.spi_devid = FC_IMU_SPIDEV;
 
-  syslog(LOG_WARNING,
-         "IMU (ICM-40609-D) on SPI%d: driver not yet registered (TODO)\n",
-         FC_IMU_SPI_BUS);
+  ret = icm40609d_register("/dev/imu0", &cfg);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR,
+             "ERROR: icm40609d_register(/dev/imu0) failed: %d\n", ret);
+      return ret;
+    }
 
-  return ret;
+  syslog(LOG_INFO, "IMU (ICM-40609-D) registered at /dev/imu0\n");
+  return OK;
 }
 
 /****************************************************************************
