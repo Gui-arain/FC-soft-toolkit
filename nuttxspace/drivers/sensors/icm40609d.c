@@ -30,11 +30,7 @@
 
 #include <nuttx/compiler.h>
 #include <nuttx/kmalloc.h>
-#ifdef CONFIG_MPU60X0_SPI
 #include <nuttx/spi/spi.h>
-#else
-#include <nuttx/i2c/i2c_master.h>
-#endif
 #include <nuttx/fs/fs.h>
 #include <nuttx/sensors/mpu60x0.h>
 #include <nuttx/sensors/ioctl.h>
@@ -426,7 +422,8 @@ struct mpu_dev_s
 
   uint8_t smplrt_div;         /* divider to control sample rate */
   uint8_t afs_sel;            /* full scale range of the accelerometer */
-  uint8_t dlpf_config;        /* digital low pass filter configuration */
+  uint8_t dnf_config;        /* digital notch filter configuration */
+  uint8_t daaf_config;       /* digital anti aliasing filter configuration */
   bool fifo_enabled;          /* current enable state of FIFO buffer */
   float sample_rate;          /* current sample rate */
 };
@@ -479,7 +476,7 @@ static const struct file_operations g_mpu_fops =
  * for documentation.
  */
 
-static int __mpu_read_reg_spi(FAR struct mpu_dev_s *dev,
+static int __icm_read_reg_spi(FAR struct mpu_dev_s *dev,
                               enum mpu_regaddr_e reg_addr,
                               FAR uint8_t *buf, uint8_t len)
 {
@@ -496,20 +493,13 @@ static int __mpu_read_reg_spi(FAR struct mpu_dev_s *dev,
    */
 
   SPI_LOCK(spi, true);
-  SPI_SETMODE(spi, SPIDEV_MODE0);
+  SPI_SETMODE(spi, SPIDEV_MODE0); //CPOL = 0 (Low), CPHA = 0 (1 Edge)
+  SPI_SETFREQUENCY(spi, 2000000); // SPI frequency set to 2MHz (based on clock config)
 
-  if ((reg_addr >= ACCEL_XOUT_H) && ((reg_addr + len) <= I2C_SLV0_DO))
-    {
-      SPI_SETFREQUENCY(spi, 20000000);
-    }
-  else
-    {
-      SPI_SETFREQUENCY(spi, 1000000);
-    }
 
   /* Select the chip. */
 
-  SPI_SELECT(spi, id, true);
+  SPI_SELECT(spi, id, true); //Select the slave by pulling the CS line low
 
   /* Send the read request. */
 
@@ -532,7 +522,7 @@ static int __mpu_read_reg_spi(FAR struct mpu_dev_s *dev,
 
 /* __mpu_write_reg(), but for SPI connections. */
 
-static int __mpu_write_reg_spi(FAR struct mpu_dev_s *dev,
+static int __icm_write_reg_spi(FAR struct mpu_dev_s *dev,
                                enum mpu_regaddr_e reg_addr,
                                FAR const uint8_t * buf, uint8_t len)
 {
@@ -547,16 +537,16 @@ static int __mpu_write_reg_spi(FAR struct mpu_dev_s *dev,
   /* Grab and configure the SPI master device. */
 
   SPI_LOCK(spi, true);
-  SPI_SETMODE(spi, SPIDEV_MODE0);
-  SPI_SETFREQUENCY(spi, 1000000);
+  SPI_SETMODE(spi, SPIDEV_MODE0); //CPOL = 0 (Low), CPHA = 0 (1 Edge)
+  SPI_SETFREQUENCY(spi, 2000000); // SPI frequency set to 2MHz (based on clock config)
 
   /* Select the chip. */
 
-  SPI_SELECT(spi, id, true);
+  SPI_SELECT(spi, id, true); //Select the slave by pulling the CS line low
 
   /* Send the write request. */
 
-  SPI_SEND(spi, reg_addr | MPU_REG_WRITE);
+  SPI_SEND(spi, reg_addr | MPU_REG_WRITE); //bit7 = 0 for writing in a register
 
   /* Send the data. */
 
@@ -585,7 +575,7 @@ static int __mpu_write_reg_spi(FAR struct mpu_dev_s *dev,
  * Returns number of bytes read, or a negative errno.
  */
 
-static inline int __mpu_read_reg(FAR struct mpu_dev_s *dev,
+static inline int __icm_read_reg(FAR struct mpu_dev_s *dev,
                                  enum mpu_regaddr_e reg_addr,
                                  FAR uint8_t *buf, uint8_t len)
 {
@@ -616,23 +606,16 @@ static inline int __mpu_read_reg(FAR struct mpu_dev_s *dev,
  * Returns number of bytes written, or a negative errno.
  */
 
-static inline int __mpu_write_reg(FAR struct mpu_dev_s *dev,
+static inline int __icm_write_reg(FAR struct mpu_dev_s *dev,
                                   enum mpu_regaddr_e reg_addr,
                                   FAR const uint8_t *buf, uint8_t len)
 {
-#ifdef CONFIG_MPU60X0_SPI
-  /* If we're connected to SPI, use that function. */
+/* If we're connected to SPI, use that function. */
 
   if (dev->config.spi != NULL)
     {
       return __mpu_write_reg_spi(dev, reg_addr, buf, len);
     }
-#else
-  if (dev->config.i2c != NULL)
-    {
-      return __mpu_write_reg_i2c(dev, reg_addr, buf, len);
-    }
-#endif
 
   /* If we get this far, it's because we can't "find" our device. */
 
@@ -653,10 +636,10 @@ static inline int __mpu_read_imu(FAR struct mpu_dev_s *dev,
 {
   if (dev->fifo_enabled)
     {
-      return __mpu_read_reg(dev, FIFO_R_W, (FAR uint8_t *)buf, sizeof(*buf));
+      return __mpu_read_reg(dev, FIFO_DATA, (FAR uint8_t *)buf, sizeof(*buf));
     }
 
-  return __mpu_read_reg(dev, ACCEL_XOUT_H, (FAR uint8_t *)buf, sizeof(*buf));
+  return __mpu_read_reg(dev, TEMP_DATA1, (FAR uint8_t *)buf, sizeof(*buf));
 }
 
 /* __mpu_read_pwr_mgmt_1()

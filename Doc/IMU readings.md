@@ -15,3 +15,4 @@ So for your case, the right architecture is:
     - reads buffered samples or waits on `poll()`
     - does filtering / estimator work
 
+IMU data-ready interrupt + hardware FIFO + burst SPI reads + kernel ring buffer

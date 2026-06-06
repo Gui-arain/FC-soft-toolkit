@@ -63,7 +63,7 @@ struct icm_config_s
 
   FAR struct spi_dev_s *spi;
   int spi_devid;
-  };
+};
 
 /****************************************************************************
  * Public Function Prototypes
