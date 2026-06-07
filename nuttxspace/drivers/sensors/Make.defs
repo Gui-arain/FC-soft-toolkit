@@ -1,0 +1,16 @@
+############################################################################
+# drivers/sensors/Make.defs — FC-soft-toolkit out-of-tree sensor drivers
+#
+# Included by nuttxspace/nuttx/drivers/platform/Make.defs, which is itself
+# included by nuttxspace/nuttx/drivers/Makefile when CONFIG_SPECIFIC_DRIVERS=y.
+#
+# $(TOPDIR) = nuttxspace/nuttx/
+# $(TOPDIR)/../drivers/sensors/ = nuttxspace/drivers/sensors/
+############################################################################
+
+ifeq ($(CONFIG_SENSORS_ICM40609D),y)
+  CSRCS += icm40609d.c
+
+  DEPPATH += --dep-path $(TOPDIR)/../drivers/sensors
+  VPATH   += :$(TOPDIR)/../drivers/sensors
+endif

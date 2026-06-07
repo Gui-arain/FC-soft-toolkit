@@ -1,2 +1,8 @@
-ARCH_SRCDIR = $(TOPDIR)/boards/arm/stm32h7/shirley-fc-dev-board/src
-ARCH_INCDIR = $(TOPDIR)/boards/arm/stm32h7/shirley-fc-dev-board/include
+ARCH_SRCDIR = $(TOPDIR)/../boards/arm/stm32h7/shirley-fc-dev-board/src
+ARCH_INCDIR = $(TOPDIR)/../boards/arm/stm32h7/shirley-fc-dev-board/include
+
+# Out-of-tree driver headers.
+# $(TOPDIR)/../drivers/include mirrors the nuttx/include layout so that
+# #include <nuttx/sensors/icm40609d.h> resolves without touching the submodule.
+
+CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)/../drivers/include

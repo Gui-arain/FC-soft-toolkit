@@ -1,0 +1,9 @@
+# Kconfig — top-level menu for FC-soft-toolkit out-of-tree drivers
+#
+# Sourced by nuttxspace/nuttx/drivers/platform/Kconfig.
+
+menu "FC Soft Toolkit Drivers"
+
+source "$BINDIR/../drivers/sensors/Kconfig"
+
+endmenu

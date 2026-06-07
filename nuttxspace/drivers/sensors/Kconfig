@@ -1,7 +1,19 @@
+# Kconfig — FC-soft-toolkit out-of-tree sensor drivers
+
+# ICM-40609-D IMU (6-axis, SPI)
+
 config SENSORS_ICM40609D
-    bool "InvenSense ICM-40609-D accelerometer/gyroscope"
-    default n
-    select SPI
-    ---help---
-        Enable driver for the ICM-40609-D 6-axis IMU.
-        Registers /dev/uorb/sensor_accel0 and sensor_gyro0.
+	bool "InvenSense ICM-40609-D IMU (accel + gyro)"
+	default n
+	depends on SPI
+	---help---
+		Enable the legacy-style NuttX driver for the InvenSense ICM-40609-D
+		6-axis IMU (accelerometer + gyroscope).
+
+		The chip is wired to SPI5 on the Shirley FC Dev Board (CS: PF10).
+		Registers a character device at /dev/imu0.
+
+		Default configuration after reset:
+		  Gyro:  ±2000 dps,  1 kHz ODR
+		  Accel: ±16 g,      1 kHz ODR
+		  Mode:  low-noise, temperature sensor on

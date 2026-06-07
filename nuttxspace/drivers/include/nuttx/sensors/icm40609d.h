@@ -12,10 +12,6 @@
  * Public Types
  ****************************************************************************/
 
-/* These structures are defined elsewhere, and we don't need their
- * definitions here.
- */
-
 struct spi_dev_s;
 
 /* Specifies the initial chip configuration and bus wiring.
@@ -26,7 +22,7 @@ struct spi_dev_s;
  *    struct icm_config_s cfg;
  *    memset(&cfg, 0, sizeof(cfg));
  *    cfg.spi      = spi_bus;
- *    cfg.spi_devid = SPIDEV_IMU(0);
+ *    cfg.spi_devid = FC_IMU_SPIDEV;
  */
 
 struct icm_config_s
