@@ -37,7 +37,13 @@
  * Each bus has a single sensor so we use SPIDEV_SENSOR(0) on both.
  */
 
-#define FC_IMU_SPIDEV   SPIDEV_SENSOR(0)
-#define FC_MAG_SPIDEV   SPIDEV_SENSOR(0)
+#define FC_IMU_SPIDEV   SPIDEV_IMU(0)
+#define FC_MAG_SPIDEV   SPIDEV_USER(0)
+
+/****************************************************************************
+ * Public Function Prototypes
+ ****************************************************************************/
+
+int stm32_bringup(void);
 
 #endif /* __BOARDS_ARM_STM32H7_SHIRLEY_FC_DEV_BOARD_SRC_FC_DEV_H */

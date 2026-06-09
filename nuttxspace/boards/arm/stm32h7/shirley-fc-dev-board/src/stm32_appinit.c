@@ -225,18 +225,7 @@ int board_app_initialize(uintptr_t arg)
 {
   int ret;
 
-  /* 1. Run board bringup — buses, SD card, C++ constructors.
-   *    Defined in stm32_bringup.c.
-   */
-
-  ret = stm32_bringup();
-  if (ret < 0)
-    {
-      syslog(LOG_ERR, "ERROR: stm32_bringup() failed: %d\n", ret);
-      return ret;
-    }
-
-  /* 2. Register sensor drivers.
+  /* Register sensor drivers.
    *    Each call is non-fatal — a missing sensor logs a warning but
    *    does not prevent the rest of the system from starting.
    */

@@ -39,7 +39,7 @@
 
 #define STM32_BOARD_XTAL        16000000ul /* Crystal Oscillator*/
 
-#define STM32_HSI_FREQUENCY     64000000ul
+#define STM32_HSI_FREQUENCY     16000000ul /* RCC init hardcodes HSIDIV=4, so HSI is always 16 MHz */
 #define STM32_LSI_FREQUENCY     32000
 #define STM32_HSE_FREQUENCY     STM32_BOARD_XTAL
 //#define STM32_LSE_FREQUENCY     32768 no external crystal for the low speed clock
@@ -212,11 +212,11 @@
  * Note: look at Table 54 in ST Manual
  */
 
-/* I2C1,2,3 clock source - PLL3R (4 MHz) */
-#define STM32_RCC_D2CCIP2R_I2C123SRC  RCC_D2CCIP2R_I2C123SEL_PLL3
+/* I2C1,2,3 clock source - HSI (16 MHz) */
+#define STM32_RCC_D2CCIP2R_I2C123SRC  RCC_D2CCIP2R_I2C123SEL_HSI
 
-/* I2C4 clock source - PLL3R (4 MHz) */
-#define STM32_RCC_D3CCIPR_I2C4SRC     RCC_D3CCIPR_I2C4SEL_PLL3
+/* I2C4 clock source - HSI (16 MHz) */
+#define STM32_RCC_D3CCIPR_I2C4SRC     RCC_D3CCIPR_I2C4SEL_HSI
 
 /* SPI4,5 clock source - PLL2Q (4 MHz) */
 #define STM32_RCC_D2CCIP1R_SPI45SRC   RCC_D2CCIP1R_SPI45SEL_PLL2

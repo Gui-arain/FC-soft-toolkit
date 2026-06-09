@@ -34,7 +34,7 @@
  *
  ****************************************************************************/
 
-void stm32_board_initialize(void)
+void stm32_boardinitialize(void)
 {
   /* The STM32H743 starts up on HSI (64 MHz internal oscillator).
    * stm32_clockconfig() switches to HSE + PLL1 as configured in board.h.
@@ -48,7 +48,7 @@ void stm32_board_initialize(void)
    * including C++ constructors in fc-stack modules.
    */
 
-  stm32_fpuconfig();
+  arm_fpuconfig();
 
   /* Configure GPIO clocks for the ports your board uses.
    * Add or remove ports to match your schematic.
@@ -70,18 +70,17 @@ void stm32_board_initialize(void)
 }
 
 /****************************************************************************
- * Name: board_early_initialize
+ * Name: board_late_initialize
  *
  * Description:
- *   Called after stm32_board_initialize(), still before the scheduler.
- *   Use for any board-specific early setup beyond clocks/FPU/UART.
- *   Keep this minimal — drivers and filesystems belong in stm32_bringup.c.
+ *   Called after the OS scheduler starts, before the init task.
+ *   Initializes buses, peripherals, and sensor drivers.
  *
  ****************************************************************************/
 
-void board_early_initialize(void)
+#ifdef CONFIG_BOARD_LATE_INITIALIZE
+void board_late_initialize(void)
 {
-  /* Nothing additional needed at this stage.
-   * Sensor drivers, SPI buses, and IMU init go in stm32_bringup.c.
-   */
+  stm32_bringup();
 }
+#endif

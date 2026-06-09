@@ -198,19 +198,7 @@ int stm32_bringup(void)
 {
   int ret;
 
-  /* 1. Run C++ static constructors.
-   *
-   *    This MUST happen before any fc-stack module (FcCore, Estimator, etc.)
-   *    is started. Without this call, all C++ objects with static storage
-   *    duration (global/static class instances) will be uninitialized and
-   *    will silently malfunction or hard-fault.
-   */
-
-#ifdef CONFIG_HAVE_CXXINITIALIZE
-  up_cxxinitialize();
-#endif
-
-  /* 2. SPI buses — IMU (SPI5) and Magnetometer (SPI4) */
+  /* 1. SPI buses — IMU (SPI5) and Magnetometer (SPI4) */
 
   ret = fc_spi_initialize();
   if (ret < 0)

@@ -34,6 +34,10 @@ Set the app folder and configure .config
 # For nucleo-h753zi or h743zi
 
 ./tools/configure.sh -l nucleo-h743zi:nsh
+
+# For the shirley-fc-dev-board
+
+./tools/configure.sh -l ../boards/arm/stm32h7/shirley-fc-dev-board/configs/nsh
 ```
 
 ### Config the board
