@@ -28,7 +28,7 @@
 #include <nuttx/mutex.h>
 #include <nuttx/signal.h>
 
-#include <nuttx/compiler.h>
+//#include <nuttx/compiler.h> -> moved to <nuttx/sensors/icm40609d.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/spi/spi.h>
 #include <nuttx/fs/fs.h>
@@ -395,21 +395,6 @@ enum icm_regaddr_e
   REG_BANK_SEL__BANK_SEL__WIDTH = 3,
 };
 
-/* Describes the ICM-40609-D sensor output registers. This structure reflects
- * the underlying hardware, so don't change it!
- */
-
-begin_packed_struct struct sensor_data_s
-{
-  int16_t temp;
-  int16_t x_accel;
-  int16_t y_accel;
-  int16_t z_accel;
-  int16_t x_gyro;
-  int16_t y_gyro;
-  int16_t z_gyro;
-} end_packed_struct;
-
 /* Used by the driver to manage the device */
 
 struct mpu_dev_s
@@ -417,7 +402,7 @@ struct mpu_dev_s
   mutex_t lock;               /* mutex for this structure */
   struct icm_config_s config; /* board-specific information */
 
-  struct sensor_data_s buf;   /* temporary buffer (for read(), etc.) */
+  struct icm40609d_data_s buf;   /* temporary buffer (for read(), etc.) */
   size_t bufpos;              /* cursor into @buf, in bytes (!) */
 
   uint8_t gyro_odr;           /* gyro output data rate selector */
@@ -633,7 +618,7 @@ static inline int __icm_write_reg(FAR struct mpu_dev_s *dev,
  */
 
 static inline int __icm_read_imu(FAR struct mpu_dev_s *dev,
-                                 FAR struct sensor_data_s *buf)
+                                 FAR struct icm40609d_data_s *buf)
 {
   if (dev->fifo_enabled)
     {

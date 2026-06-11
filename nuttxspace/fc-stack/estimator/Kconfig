@@ -1,0 +1,5 @@
+config FC_ESTIMATOR
+    tristate "Flight Controller Estimator"
+    default n
+    ---help---
+        Attitude estimator reading IMU data from /dev/imu0

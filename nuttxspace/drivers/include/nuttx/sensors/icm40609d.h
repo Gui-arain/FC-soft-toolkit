@@ -7,6 +7,7 @@
  ****************************************************************************/
 
 #include <nuttx/config.h>
+#include <nuttx/compiler.h>
 
 /****************************************************************************
  * Public Types
@@ -37,6 +38,21 @@ struct icm_config_s
   FAR struct spi_dev_s *spi;
   int spi_devid;
 };
+
+/* Describes the ICM-40609-D sensor output registers. This structure reflects
+ * the underlying hardware, so don't change it!
+ */
+
+begin_packed_struct struct icm40609d_data_s
+{
+  int16_t temp;
+  int16_t x_accel;
+  int16_t y_accel;
+  int16_t z_accel;
+  int16_t x_gyro;
+  int16_t y_gyro;
+  int16_t z_gyro;
+} end_packed_struct;
 
 /****************************************************************************
  * Public Function Prototypes
