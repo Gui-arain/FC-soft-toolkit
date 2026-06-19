@@ -4,3 +4,4 @@
 [submodule "nuttxspace/apps"]
 	path = nuttxspace/apps
 	url = https://github.com/apache/nuttx-apps
+	ignore = untracked
