@@ -1,0 +1,6 @@
+# NuttX build artifacts
+estimator/*.o
+estimator/*.a
+estimator/.depend
+estimator/.built
+estimator/Make.dep

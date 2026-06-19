@@ -1,2 +1,15 @@
-source "$(APPDIR)/fc-stack/fc_core/Kconfig"
-source "$(APPDIR)/fc-stack/estimator/Kconfig"
+menu "fc-stack"
+
+config FC_CORE
+    tristate "Flight Controller Core"
+    default n
+    ---help---
+        Main FC scheduling and control loop
+
+config FC_ESTIMATOR
+    tristate "Flight Controller Estimator"
+    default n
+    ---help---
+        Attitude estimator reading IMU data from /dev/imu0
+
+endmenu

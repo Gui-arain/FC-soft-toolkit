@@ -1,3 +1,5 @@
+CXXEXT = .cpp
+
 include $(APPDIR)/Make.defs
 
 PROGNAME  = fc_core

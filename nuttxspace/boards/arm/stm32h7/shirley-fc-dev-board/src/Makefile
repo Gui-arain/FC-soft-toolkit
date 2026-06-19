@@ -2,6 +2,10 @@ include $(TOPDIR)/Make.defs
 
 CSRCS = stm32_boot.c stm32_bringup.c stm32_appinit.c stm32_spi.c
 
+ifeq ($(CONFIG_ARCH_LEDS),y)
+CSRCS += stm32_autoleds.c
+endif
+
 ifeq ($(CONFIG_SENSORS_ICM40609D),y)
 CSRCS += icm40609d.c
 VPATH += :$(TOPDIR)/../drivers/sensors
