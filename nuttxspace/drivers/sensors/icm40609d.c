@@ -397,7 +397,7 @@ enum icm_regaddr_e
 
 /* Used by the driver to manage the device */
 
-struct mpu_dev_s
+struct icm_dev_s
 {
   mutex_t lock;               /* mutex for this structure */
   struct icm_config_s config; /* board-specific information */
@@ -418,26 +418,26 @@ struct mpu_dev_s
  * Private Function Function Prototypes
  ****************************************************************************/
 
-static int mpu_open(FAR struct file *filep);
-static int mpu_close(FAR struct file *filep);
-static ssize_t mpu_read(FAR struct file *filep, FAR char *buf, size_t len);
-static ssize_t mpu_write(FAR struct file *filep, FAR const char *buf,
+static int icm_open(FAR struct file *filep);
+static int icm_close(FAR struct file *filep);
+static ssize_t icm_read(FAR struct file *filep, FAR char *buf, size_t len);
+static ssize_t icm_write(FAR struct file *filep, FAR const char *buf,
                          size_t len);
-static off_t mpu_seek(FAR struct file *filep, off_t offset, int whence);
-static int mpu_ioctl(FAR struct file *filep, int cmd, unsigned long arg);
+static off_t icm_seek(FAR struct file *filep, off_t offset, int whence);
+static int icm_ioctl(FAR struct file *filep, int cmd, unsigned long arg);
 
 /****************************************************************************
  * Private Data
  ****************************************************************************/
 
-static const struct file_operations g_mpu_fops =
+static const struct file_operations g_icm_fops =
 {
-  mpu_open,        /* open */
-  mpu_close,       /* close */
-  mpu_read,        /* read */
-  mpu_write,       /* write */
-  mpu_seek,        /* seek */
-  mpu_ioctl,       /* ioctl */
+  icm_open,        /* open */
+  icm_close,       /* close */
+  icm_read,        /* read */
+  icm_write,       /* write */
+  icm_seek,        /* seek */
+  icm_ioctl,       /* ioctl */
 };
 
 /****************************************************************************
@@ -447,11 +447,11 @@ static const struct file_operations g_mpu_fops =
 /* NOTE :
  *
  * In all of the following code, functions named with a double leading
- * underscore '__' must be invoked ONLY if the mpu_dev_s lock is
+ * underscore '__' must be invoked ONLY if the icm_dev_s lock is
  * already held. Failure to do this might cause the transaction to get
  * interrupted, which will likely confuse the data you get back.
  *
- * The mpu_dev_s lock is NOT the same thing as, i.e. the SPI master
+ * The icm_dev_s lock is NOT the same thing as, i.e. the SPI master
  * interface lock: the latter protects the bus interface hardware
  * (which may have other SPI devices attached), the former protects
  * the chip and its associated data.
@@ -462,7 +462,7 @@ static const struct file_operations g_mpu_fops =
  * for documentation.
  */
 
-static int __icm_read_reg_spi(FAR struct mpu_dev_s *dev,
+static int __icm_read_reg_spi(FAR struct icm_dev_s *dev,
                               enum icm_regaddr_e reg_addr,
                               FAR uint8_t *buf, uint8_t len)
 {
@@ -508,7 +508,7 @@ static int __icm_read_reg_spi(FAR struct mpu_dev_s *dev,
 
 /* __icm_write_reg(), but for SPI connections. */
 
-static int __icm_write_reg_spi(FAR struct mpu_dev_s *dev,
+static int __icm_write_reg_spi(FAR struct icm_dev_s *dev,
                                enum icm_regaddr_e reg_addr,
                                FAR const uint8_t * buf, uint8_t len)
 {
@@ -561,7 +561,7 @@ static int __icm_write_reg_spi(FAR struct mpu_dev_s *dev,
  * Returns number of bytes read, or a negative errno.
  */
 
-static inline int __icm_read_reg(FAR struct mpu_dev_s *dev,
+static inline int __icm_read_reg(FAR struct icm_dev_s *dev,
                                  enum icm_regaddr_e reg_addr,
                                  FAR uint8_t *buf, uint8_t len)
 {
@@ -592,7 +592,7 @@ static inline int __icm_read_reg(FAR struct mpu_dev_s *dev,
  * Returns number of bytes written, or a negative errno.
  */
 
-static inline int __icm_write_reg(FAR struct mpu_dev_s *dev,
+static inline int __icm_write_reg(FAR struct icm_dev_s *dev,
                                   enum icm_regaddr_e reg_addr,
                                   FAR const uint8_t *buf, uint8_t len)
 {
@@ -617,7 +617,7 @@ static inline int __icm_write_reg(FAR struct mpu_dev_s *dev,
  * want.
  */
 
-static inline int __icm_read_imu(FAR struct mpu_dev_s *dev,
+static inline int __icm_read_imu(FAR struct icm_dev_s *dev,
                                  FAR struct icm40609d_data_s *buf)
 {
   if (dev->fifo_enabled)
@@ -628,19 +628,19 @@ static inline int __icm_read_imu(FAR struct mpu_dev_s *dev,
   return __icm_read_reg(dev, TEMP_DATA1, (FAR uint8_t *)buf, sizeof(*buf));
 }
 
-static inline int __icm_write_signal_path_reset(FAR struct mpu_dev_s *dev,
+static inline int __icm_write_signal_path_reset(FAR struct icm_dev_s *dev,
                                                 uint8_t val)
 {
   return __icm_write_reg(dev, SIGNAL_PATH_RESET, &val, sizeof(val));
 }
 
-static inline int __icm_write_int_config(FAR struct mpu_dev_s *dev,
+static inline int __icm_write_int_config(FAR struct icm_dev_s *dev,
                                          uint8_t val)
 {
   return __icm_write_reg(dev, INT_CONFIG, &val, sizeof(val));
 }
 
-static inline int __icm_write_pwr_mgmt0(FAR struct mpu_dev_s *dev,
+static inline int __icm_write_pwr_mgmt0(FAR struct icm_dev_s *dev,
                                         uint8_t val)
 {
   return __icm_write_reg(dev, PWR_MGMT0, &val, sizeof(val));
@@ -656,7 +656,7 @@ static inline int __icm_write_pwr_mgmt0(FAR struct mpu_dev_s *dev,
  *   110 = ±31.25 dps             111 = ±15.625 dps
  */
 
-static inline int __icm_write_gyro_config(FAR struct mpu_dev_s *dev,
+static inline int __icm_write_gyro_config(FAR struct icm_dev_s *dev,
                                           uint8_t fs_sel)
 {
   uint8_t val = TO_BITFIELD(GYRO_CONFIG0__GYRO_FS_SEL, fs_sel);
@@ -672,7 +672,7 @@ static inline int __icm_write_gyro_config(FAR struct mpu_dev_s *dev,
  *   011 = ±2 g               100 = ±32 g  (ICM-40609-D only)
  */
 
-static inline int __icm_write_accel_config(FAR struct mpu_dev_s *dev,
+static inline int __icm_write_accel_config(FAR struct icm_dev_s *dev,
                                            uint8_t afs_sel)
 {
   uint8_t val;
@@ -695,7 +695,7 @@ static inline int __icm_write_accel_config(FAR struct mpu_dev_s *dev,
  *   0x08 = 100 Hz,  0x09 = 50 Hz,  0x0a = 25 Hz,   0x0b = 12.5 Hz
  */
 
-static inline int __icm_read_sample_rate(FAR struct mpu_dev_s *dev)
+static inline int __icm_read_sample_rate(FAR struct icm_dev_s *dev)
 {
   static const float odr_table[16] =
   {
@@ -734,7 +734,7 @@ static inline int __icm_read_sample_rate(FAR struct mpu_dev_s *dev)
 
 /* Read the number of bytes currently in FIFO buffer. */
 
-static inline int __icm_read_fifo_count(FAR struct mpu_dev_s *dev,
+static inline int __icm_read_fifo_count(FAR struct icm_dev_s *dev,
                                         uint16_t *buf)
 {
   int ret;
@@ -758,7 +758,7 @@ static inline int __icm_read_fifo_count(FAR struct mpu_dev_s *dev,
  * or 0 to disable all sensors from the FIFO.
  */
 
-static inline int __icm_set_fifo(FAR struct mpu_dev_s *dev,
+static inline int __icm_set_fifo(FAR struct icm_dev_s *dev,
                                  uint8_t val)
 {
   return __icm_write_reg(dev, FIFO_CONFIG1, &val, sizeof(val));
@@ -766,7 +766,7 @@ static inline int __icm_set_fifo(FAR struct mpu_dev_s *dev,
 
 /* Resets the ICM-40609-D and applies a default configuration. */
 
-static int mpu_reset(FAR struct mpu_dev_s *dev)
+static int icm_reset(FAR struct icm_dev_s *dev)
 {
   int ret;
   uint8_t status;
@@ -849,7 +849,7 @@ static int mpu_reset(FAR struct mpu_dev_s *dev)
 }
 
 /****************************************************************************
- * Name: mpu_open
+ * Name: icm_open
  *
  * Note: we don't deal with multiple users trying to access this interface at
  * the same time. Until further notice, don't do that.
@@ -862,10 +862,10 @@ static int mpu_reset(FAR struct mpu_dev_s *dev)
  *
  ****************************************************************************/
 
-static int mpu_open(FAR struct file *filep)
+static int icm_open(FAR struct file *filep)
 {
   FAR struct inode *inode = filep->f_inode;
-  FAR struct mpu_dev_s *dev = inode->i_private;
+  FAR struct icm_dev_s *dev = inode->i_private;
 
   /* Reset the register cache */
 
@@ -877,13 +877,13 @@ static int mpu_open(FAR struct file *filep)
 }
 
 /****************************************************************************
- * Name: mpu_close
+ * Name: icm_close
  ****************************************************************************/
 
-static int mpu_close(FAR struct file *filep)
+static int icm_close(FAR struct file *filep)
 {
   FAR struct inode *inode = filep->f_inode;
-  FAR struct mpu_dev_s *dev = inode->i_private;
+  FAR struct icm_dev_s *dev = inode->i_private;
 
   /* Reset (clear) the register cache. */
 
@@ -895,7 +895,7 @@ static int mpu_close(FAR struct file *filep)
 }
 
 /****************************************************************************
- * Name: mpu_read
+ * Name: icm_read
  *
  * Returns a snapshot of the accelerometer, temperature, and gyro registers.
  *
@@ -931,10 +931,10 @@ static int mpu_close(FAR struct file *filep)
  *
  ****************************************************************************/
 
-static ssize_t mpu_read(FAR struct file *filep, FAR char *buf, size_t len)
+static ssize_t icm_read(FAR struct file *filep, FAR char *buf, size_t len)
 {
   FAR struct inode *inode = filep->f_inode;
-  FAR struct mpu_dev_s *dev = inode->i_private;
+  FAR struct icm_dev_s *dev = inode->i_private;
   size_t send_len = 0;
 
   nxmutex_lock(&dev->lock);
@@ -975,14 +975,14 @@ static ssize_t mpu_read(FAR struct file *filep, FAR char *buf, size_t len)
 }
 
 /****************************************************************************
- * Name: mpu_write
+ * Name: icm_write
  ****************************************************************************/
 
-static ssize_t mpu_write(FAR struct file *filep, FAR const char *buf,
+static ssize_t icm_write(FAR struct file *filep, FAR const char *buf,
                          size_t len)
 {
   FAR struct inode *inode = filep->f_inode;
-  FAR struct mpu_dev_s *dev = inode->i_private;
+  FAR struct icm_dev_s *dev = inode->i_private;
 
   UNUSED(inode);
   UNUSED(dev);
@@ -995,10 +995,10 @@ static ssize_t mpu_write(FAR struct file *filep, FAR const char *buf,
  * Name: icm40609d_seek
  ****************************************************************************/
 
-static off_t mpu_seek(FAR struct file *filep, off_t offset, int whence)
+static off_t icm_seek(FAR struct file *filep, off_t offset, int whence)
 {
   FAR struct inode *inode = filep->f_inode;
-  FAR struct mpu_dev_s *dev = inode->i_private;
+  FAR struct icm_dev_s *dev = inode->i_private;
 
   UNUSED(inode);
   UNUSED(dev);
@@ -1012,10 +1012,10 @@ static off_t mpu_seek(FAR struct file *filep, off_t offset, int whence)
  * Name: icm40609d_ioctl
  ****************************************************************************/
 
-static int mpu_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
+static int icm_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 {
   FAR struct inode *inode = filep->f_inode;
-  FAR struct mpu_dev_s *priv = inode->i_private;
+  FAR struct icm_dev_s *priv = inode->i_private;
   uint8_t write_data = (uint8_t)arg;
   int ret = OK;
 
@@ -1137,7 +1137,7 @@ static int mpu_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
 int icm40609d_register(FAR const char *path, FAR struct icm_config_s *config)
 {
-  FAR struct mpu_dev_s *priv;
+  FAR struct icm_dev_s *priv;
   int ret;
 
   /* Without config info, we can't do anything. */
@@ -1149,7 +1149,7 @@ int icm40609d_register(FAR const char *path, FAR struct icm_config_s *config)
 
   /* Initialize the device structure. */
 
-  priv = kmm_malloc(sizeof(struct mpu_dev_s));
+  priv = kmm_malloc(sizeof(struct icm_dev_s));
   if (priv == NULL)
     {
       snerr("ERROR: Failed to allocate ICM-40609-D device instance\n");
@@ -1167,7 +1167,7 @@ int icm40609d_register(FAR const char *path, FAR struct icm_config_s *config)
 
   /* Reset the chip, to give it an initial configuration. */
 
-  ret = mpu_reset(priv);
+  ret = icm_reset(priv);
   if (ret < 0)
     {
       snerr("ERROR: Failed to configure ICM-40609-D: %d\n", ret);
@@ -1179,7 +1179,7 @@ int icm40609d_register(FAR const char *path, FAR struct icm_config_s *config)
 
   /* Register the device node. */
 
-  ret = register_driver(path, &g_mpu_fops, 0666, priv);
+  ret = register_driver(path, &g_icm_fops, 0666, priv);
   if (ret < 0)
     {
       snerr("ERROR: Failed to register ICM-40609-D interface: %d\n", ret);

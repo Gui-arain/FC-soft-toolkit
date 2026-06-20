@@ -15,7 +15,7 @@
 extern "C" int estimator_main(int argc, char *argv[]);
 // Private constructor
 static inline void imu_read_registers(int fd, struct icm40609d_data_s* sample_ptr);
-static void imu_read_FIFO();
+static void imu_read_FIFO(int fd);
 
 // Public Variables
 struct icm40609d_data_s sample;
@@ -67,8 +67,9 @@ if (n_read != (ssize_t)sizeof(*sample_ptr)) {
 }
 
 
-static void imu_read_FIFO()
+static void imu_read_FIFO(int fd)
 {
     //Enable FIFO continuous mode
+    ioctl(fd, SNIOC_ENABLE_FIFO, 1);
 
 }

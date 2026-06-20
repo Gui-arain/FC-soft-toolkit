@@ -97,12 +97,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Doc/NuttX Build Config.md",
+                "file": "Doc/drivers/IMU readings.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "NuttX Build Config"
+              "title": "IMU readings"
             }
           }
         ],
@@ -270,24 +270,26 @@
   },
   "active": "6dbe9dc09ca20c3d",
   "lastOpenFiles": [
+    "nuttxspace/drivers/include/nuttx/sensors/icm40609d-fifo.h",
+    "nuttxspace/drivers/sensors/icm40609d-fifo.c",
+    "nuttxspace/drivers/sensors/icm40609d-fifo",
+    "Doc/drivers/ICM-40609-D @ 32kHz — Legacy NuttX Driver Sketch.md",
+    "Doc/drivers/ICM-40609-D Driver.md",
+    "Doc/drivers/IMU readings.md",
+    "Doc/FC First Bringup 🌱.md",
+    "FC Project structure.md",
     "Doc/NuttX Board Port.md",
     "Doc/NuttX Build Config.md",
-    "Doc/drivers/IMU readings.md",
-    "Doc/drivers/ICM-40609-D Driver.md",
-    "FC Project structure.md",
+    "nuttxspace/nuttx/libs/libc/stzqoYZl",
+    "nuttxspace/boards/arm/stm32h7/shirley-fc-dev-board/scripts/flash.ld.tmp",
+    "nuttxspace/apps/sttMABt4",
+    "nuttxspace/nuttx/libs/libc/stZwtdMe",
     "nuttxspace/apps/stbtSVHC",
     "nuttxspace/nuttx/libs/libc/st9hLbXt",
     "nuttxspace/nuttx/nuttx.manifest",
     "nuttxspace/nuttx/nuttx.bin",
-    "nuttxspace/nuttx/nuttx.hex",
-    "nuttxspace/nuttx/System.map",
-    "nuttxspace/nuttx/nuttx",
-    "nuttxspace/boards/arm/stm32h7/shirley-fc-dev-board/src/stm32_autoleds.o",
-    "nuttxspace/fc-stack/estimator/estimator_main.cpp.Users.guilhem_andrieu.Documents.Projects.FC-soft-toolkit.nuttxspace.fc-stack.estimator_1.o",
-    "nuttxspace/fc-stack/estimator/estimator_main.cpp.Users.guilhem_andrieu.Documents.Projects.FC-soft-toolkit.nuttxspace.fc-stack.estimator.o",
     "Doc/helpers/C++ Cheat Sheet.md",
     "Doc/helpers/C++ cheat sheet 🛠️.md",
-    "Doc/FC First Bringup 🌱.md",
     "Doc/Setup MacOS 🍎.md",
     "Doc/NuttX setup 🥜.md",
     "Doc/imgs/Clock_config_HSE.png",
@@ -313,8 +315,6 @@
     "nuttx/Documentation/platforms/risc-v/litex/boards/arty_a7/arty_a7.jpg",
     "nuttx/Documentation/legacy_README.md",
     "nuttx/CONTRIBUTING.md",
-    "[Doc/JLink.md",
-    "Doc/JLink.md",
-    "Doc/STM32.md"
+    "[Doc/JLink.md"
   ]
 }
