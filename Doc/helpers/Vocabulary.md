@@ -141,8 +141,42 @@
 - **RTC (Real-Time Clock)**: Low-power clock keeping track of time/date, often running during low-power modes.
 
 ---
-- Context switching: Context switching is the process where the CPU stops running one process, saves its current state, and loads the saved state of another process so that multiple processes can share the CPU effectively
 
-- Round Robin scheduling: Round Robin Scheduling is a method used by operating systems to manage the execution time of multiple processes that are competing for CPU attention. It is called "round robin" because the system rotates through all the processes, allocating each of them a fixed time slice or "quantum", regardless of their priority. The primary goal of this scheduling method is to ensure that all processes are given an equal opportunity to execute, promoting fairness among tasks.
+### 🔄 OS & scheduling
 
-- preemptive scheduling: 
+- **context switching**: The process where the CPU stops running one task, saves its entire state (registers, PC, stack pointer) into the task's TCB, and restores another task's saved state — allowing multiple tasks to share a single CPU core. Triggered by the scheduler on a timer tick, a blocking call, or a higher-priority task becoming ready.
+
+- **round-robin scheduling**: A scheduling policy where the OS cycles through all ready tasks in order, giving each a fixed time slice (quantum) regardless of priority. Ensures fairness; commonly used as a tie-breaking rule between equal-priority tasks in preemptive schedulers like NuttX.
+
+- **preemptive scheduling**: A scheduling mode where the OS can forcibly interrupt a running task at any point (e.g., on a timer interrupt) to run a higher-priority or time-sliced task. Contrasts with cooperative scheduling, where tasks voluntarily yield the CPU.
+
+- **semantic**: The behavioral contract of an operation — what it guarantees about ordering, visibility, and correctness. Commonly appears in concurrency: *acquire semantics* (no reads/writes after this point may be reordered before it) and *release semantics* (no reads/writes before this point may be reordered after it). Critical for lock-free data structures and memory-barrier placement.
+
+- **mutex (Mutual Exclusion lock)**: A synchronization primitive that allows only one task to hold it at a time. A task attempting to acquire a locked mutex is put to sleep until the holder releases it. Unlike a binary semaphore, a mutex has an owner — which enables priority inheritance to avoid priority inversion.
+
+- **work queue**: A kernel mechanism for deferring work from an ISR or high-priority context to a lower-priority task context. Function pointers (with arguments) are enqueued and processed sequentially by a dedicated worker task, keeping interrupt handlers short and non-blocking.
+
+- **callback function**: A function passed as an argument to another function, invoked by that outer function when a specific event or operation completes. Common pattern for deferred actions (e.g., completion handlers, event notifications).
+
+- **Task Control Block (TCB)**: A dedicated data structure in RAM created for every task, serving as the system's record of that task's full state when it is not running:
+  - **Context Storage**: saves CPU registers and the Program Counter (PC) during context switches.
+  - **Stack Pointer**: points to the top of the task's private stack.
+  - **Task State**: tracks whether the task is Running, Ready, Blocked, or Suspended.
+  - **Priority Level**: integer representing the task's scheduling importance.
+  - **Linking Pointers**: link the TCB into the scheduler's ready or blocked lists.
+
+---
+
+### 💻 NuttX / POSIX interfaces
+
+- **syscall (system call)**: A controlled gateway from unprivileged userspace into the privileged OS kernel. The application invokes a well-defined entry point (e.g., `read`, `write`, `poll`) via a trap instruction (SVC on ARM Cortex-M); the kernel validates and executes the request, then returns the result. In NuttX flat-address mode, syscalls are direct function calls; in protected mode they cross a privilege boundary.
+
+- **file descriptor (FD)**: A small non-negative integer returned by `open()` that acts as a handle to an open OS resource — a file, device driver, socket, or pipe. All subsequent operations (`read`, `write`, `ioctl`, `poll`, `close`) reference the resource through this integer. NuttX is POSIX-compliant: device drivers register in the VFS and are accessed via FDs like any file.
+
+- **Virtual File System (VFS)**: An abstraction layer inside the OS kernel that presents a uniform file-like API (`open`/`read`/`write`/`ioctl`/`close`) over heterogeneous resources — files, character device drivers, network sockets, pipes, and more. In NuttX, drivers register as named nodes in the VFS tree (e.g., `/dev/imu0`), letting userspace access hardware through standard POSIX calls without knowing the underlying implementation.
+
+- **polling (`poll()`)**: A POSIX syscall that lets a userspace task block on one or more file descriptors until at least one has data ready (readable, writable, or error). The task sleeps and consumes no CPU while waiting — the kernel wakes it when a driver signals readiness. Preferred over busy-waiting for event-driven I/O in multi-task systems.
+
+---
+
+- pointer casting: the process of changing the data type of a pointer without changing the underlying memory address it references. It instructs the compiler to interpret the raw bits at that memory location as a different data type

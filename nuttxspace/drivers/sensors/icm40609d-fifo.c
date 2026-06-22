@@ -21,7 +21,7 @@
 #include <nuttx/kmalloc.h>
 #include <nuttx/spi/spi.h>
 #include <nuttx/fs/fs.h>
-#include <nuttx/sensors/icm40609d.h>
+#include <nuttx/sensors/icm40609d-fifo.h>
 #include <nuttx/sensors/ioctl.h>
 
 #include <nuttx/wqueue.h>     /* work_queue() bottom half */
@@ -49,6 +49,10 @@
 
 #define ICM_REG_READ 0x80
 #define ICM_REG_WRITE 0
+
+/* SPI bus frequency */
+
+#define ICM_SPI_FREQ 10000000 // SPI frequency set to 10MHz (based on clock config)
 
 /* FIFO readings */
 
@@ -421,26 +425,265 @@ struct icm_dev_s
   mutex_t lock;               /* mutex for this structure */
   struct icm_config_s config; /* board-specific information */
 
-  struct icm40609d_data_s buf;   /* temporary buffer (for read(), etc.) */
-  size_t bufpos;              /* cursor into @buf, in bytes (!) */
-
   uint8_t gyro_odr;           /* gyro output data rate selector */
   uint8_t accel_odr;          /* accel output data rate selector */
   uint8_t afs_sel;            /* full scale range of the accelerometer */
   uint8_t dnf_config;         /* digital notch filter configuration */
   uint8_t daaf_config;        /* digital anti aliasing filter configuration */
   float sample_rate;          /* current sample rate */
-  bool fifo_enabled;          /* current enable state of FIFO buffer */
+  //bool fifo_enabled;          /* current enable state of FIFO buffer */ -> always enabled in this version
   
   /* --- IRQ-driven FIFO streaming --- */
-  struct circbuf_s    fifo_rb;        /* ring buffer of icm_fifo_sample_s */
+  struct circbuf_s     fifo_rb;        /* ring buffer of icm_fifo_sample_s */
   sem_t                rb_sem;         /* protects fifo_rb (NOT dev->lock) */
   struct work_s        fifo_work;      /* work_queue() job token */
   FAR struct pollfd   *fds[ICM_NPOLLWAITERS];
-  uint16_t              watermark_bytes;
-  bool                  streaming;     /* true once FIFO+IRQ both armed */
-
+  uint16_t             watermark_bytes; //configures the watermark threshold after which the IMU will trigger an interrupt
+  bool                 streaming;     /* true once FIFO+IRQ both armed */
+  int                  crefs          // Tracks how many fds are open
 };
+
+/****************************************************************************
+ * Private Function Function Prototypes
+ ****************************************************************************/
+
+static int icm_open(FAR struct file *filep);
+static int icm_close(FAR struct file *filep);
+static ssize_t icm_read(FAR struct file *filep, FAR char *buf, size_t len);
+static int icm_poll(FAR struct file *filep, FAR struct pollfd *fds, bool setup);
+static int icm_ioctl(FAR struct file *filep, int cmd, unsigned long arg);
+
+/****************************************************************************
+ * Struct containing our function pointers so that NuttX VFS
+ * can call them when a syscall is made in a user task
+ ****************************************************************************/
+
+static const struct file_operations g_icm_fops =
+{
+  .open  = icm_open,
+  .close = icm_close,
+  .read  = icm_read,    /* ← called by NuttX when userspace calls read()  */
+  .poll  = icm_poll,    /* ← called by NuttX when userspace calls poll()  */
+  .write = NULL,
+  .ioctl = icm_ioctl,
+};
+
+/* __icm_read_reg(), but for SPI-connected devices. See that function
+ * for documentation.
+ */
+
+static int __icm_read_reg_spi(FAR struct icm_dev_s *dev, enum icm_regaddr_e reg_addr, FAR uint8_t *buf, uint8_t len)
+{
+  int ret;
+  FAR struct spi_dev_s *spi = dev->config.spi;
+  int id = dev->config.spi_devid;
+
+  /* We'll probably return the number of bytes asked for. */
+
+  ret = len;
+
+  /* Grab and configure the SPI master device: always mode 0, 20MHz if it's a
+   * data register, 1MHz otherwise (per datasheet).
+   */
+
+  SPI_LOCK(spi, true);
+  SPI_SETMODE(spi, SPIDEV_MODE0); //CPOL = 0 (Low), CPHA = 0 (1 Edge)
+  SPI_SETFREQUENCY(spi, ICM_SPI_FREQ); 
+
+
+  /* Select the chip. */
+
+  SPI_SELECT(spi, id, true); //Select the slave by pulling the CS line low
+
+  /* Send the read request. */
+
+  SPI_SEND(spi, reg_addr | ICM_REG_READ);
+
+  /* Clock in the data. */
+
+  while (0 != len--)
+    {
+      *buf++ = (uint8_t) (SPI_SEND(spi, 0xff));
+    }
+
+  /* Deselect the chip, release the SPI master. */
+
+  SPI_SELECT(spi, id, false);
+  SPI_LOCK(spi, false);
+
+  return ret;
+}
+
+/* __icm_write_reg(), but for SPI connections. */
+
+static int __icm_write_reg_spi(FAR struct icm_dev_s *dev, enum icm_regaddr_e reg_addr, FAR const uint8_t * buf, uint8_t len)
+{
+  int ret;
+  FAR struct spi_dev_s *spi = dev->config.spi;
+  int id = dev->config.spi_devid;
+
+  /* Hopefully, we'll return all the bytes they're asking for. */
+
+  ret = len;
+
+  /* Grab and configure the SPI master device. */
+
+  SPI_LOCK(spi, true);
+  SPI_SETMODE(spi, SPIDEV_MODE0); //CPOL = 0 (Low), CPHA = 0 (1 Edge)
+  SPI_SETFREQUENCY(spi, 2000000); // SPI frequency set to 2MHz (based on clock config)
+
+  /* Select the chip. */
+
+  SPI_SELECT(spi, id, true); //Select the slave by pulling the CS line low
+
+  /* Send the write request. */
+
+  SPI_SEND(spi, reg_addr | ICM_REG_WRITE); //bit7 = 0 for writing in a register
+
+  /* Send the data. */
+
+  while (0 != len--)
+    {
+      SPI_SEND(spi, *buf++);
+    }
+
+  /* Release the chip and SPI master. */
+
+  SPI_SELECT(spi, id, false);
+  SPI_LOCK(spi, false);
+
+  return ret;
+}
+
+/* __icm_read_reg()
+ *
+ * Reads a block of @len byte-wide registers, starting at @reg_addr,
+ * from the device connected to @dev. Bytes are returned in @buf,
+ * which must have a capacity of at least @len bytes.
+ *
+ * Note: The caller must hold @dev->lock before calling this function.
+ *
+ * Returns number of bytes read, or a negative errno.
+ */
+
+static inline int __icm_read_reg(FAR struct icm_dev_s *dev, enum icm_regaddr_e reg_addr, FAR uint8_t *buf, uint8_t len)
+{
+  /* If we're wired to SPI, use that function. */
+
+  if (dev->config.spi != NULL)
+    {
+      return __icm_read_reg_spi(dev, reg_addr, buf, len);
+    }
+
+  /* If we get this far, it's because we can't "find" our device. */
+
+  return -ENODEV;
+}
+
+/* __icm_write_reg()
+ *
+ * Writes a block of @len byte-wide registers, starting at @reg_addr,
+ * using the values in @buf to the device connected to @dev. Register
+ * values are taken in numerical order from @buf, i.e.:
+ *
+ *   buf[0] -> register[@reg_addr]
+ *   buf[1] -> register[@reg_addr + 1]
+ *   ...
+ *
+ * Note: The caller must hold @dev->lock before calling this function.
+ *
+ * Returns number of bytes written, or a negative errno.
+ */
+
+static inline int __icm_write_reg(FAR struct icm_dev_s *dev,  enum icm_regaddr_e reg_addr, FAR const uint8_t *buf, uint8_t len)
+{
+  /* If we're connected to SPI, use that function. */
+
+  if (dev->config.spi != NULL)
+    {
+      return __icm_write_reg_spi(dev, reg_addr, buf, len);
+    }
+
+  /* If we get this far, it's because we can't "find" our device. */
+
+  return -ENODEV;
+}
+
+/* __icm_read_fifo_count()
+ *
+ * Reads how many bytes are available in the IMU FIFO
+ *
+ * Note: This prevents reading too many bytes from the register than necessary
+ *
+ * Returns 0 uppon success or a negative errno.
+ * Updates the fifo_bytes variable with the actual count
+ */
+
+static int __icm_read_fifo_count(FAR struct icm_dev_s *dev, u_int16_t *fifo_bytes)
+{
+  int ret;
+  uint8_t fifo_counter[2];
+  ret = __icm_read_reg(dev, FIFO_COUNTH, fifo_counter, sizeof(fifo_counter));
+  if (ret < 0)
+    {
+      snerr("ERROR: Failed to read FIFO counter\n");
+      *fifo_bytes = 0;
+    }
+  else
+    {
+      *fifo_bytes = (fifo_counter[0] << 8) | fifo_counter[1];
+    }
+
+  return ret;
+}
+
+/****************************************************************************
+ * icm_reset()
+ *
+ * Configure the required registers when opening the driver before streaming
+ * 
+ * 
+ ****************************************************************************/
+
+static int icm_reset(FAR struct icm_dev_s *dev)
+{
+
+}
+
+/****************************************************************************
+ * icm_fifo_start()
+ *
+ * Configure the watermark and enables the IRQ
+ * 
+ * 
+ ****************************************************************************/
+
+static int icm_fifo_start(FAR struct icm_dev_s *dev)
+{
+  /* FIFO config 
+  * enable gyro output, accel output, timestamp output
+  */
+  const uint8_t fifo_mode = FIFO_CONFIG1__FIFO_GYRO_EN | FIFO_CONFIG1__FIFO_ACCEL_EN | FIFO_CONFIG1__FIFO_TMST_FSYNC_EN; 
+
+  int ret = OK;
+
+  ret = __icm_write_reg(dev, FIFO_CONFIG1, &fifo_mode, sizeof(fifo_mode));
+
+  return ret;
+}
+
+/****************************************************************************
+ * icm_fifo_stop()
+ *
+ * Disarm the FIFO and IRQ
+ * 
+ * 
+ ****************************************************************************/
+
+static int icm_fifo_stop(FAR struct icm_dev_s *dev)
+{
+
+}
 
 /****************************************************************************
  * icm_fifo_isr()
@@ -449,6 +692,9 @@ struct icm_dev_s
  * GPIO IRQ implementation). MUST NOT perform SPI transactions — most
  * NuttX SPI drivers are not safe to call from hard-IRQ context, and even
  * if they were, you don't want SPI bus arbitration latency inside an ISR.
+ * 
+ * Note: This interrupt will be triggered byt the FIFO watermark interrupt, 
+ * once the bytes in FIFO > Water mark count
  *
  * Just schedule the bottom half and get out.
  ****************************************************************************/
@@ -464,7 +710,7 @@ static int icm_fifo_isr(int irq, FAR void *context, FAR void *arg)
  
   work_queue(HPWORK, &dev->fifo_work, icm_fifo_worker, dev, 0);
  
-  return OK;
+  return 0;
 }
  
 /****************************************************************************
@@ -618,6 +864,70 @@ static void icm_fifo_worker(FAR void *arg)
  
   poll_notify(dev->fds, ICM_NPOLLWAITERS, POLLIN);
 }
+
+/****************************************************************************
+ * ////////////////// FUNCTIONS CALLED THROUGH SYSCALLS //////////////////
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: icm_open
+ *
+ * Note: we don't deal with multiple users trying to access this interface at
+ * the same time. Until further notice, don't do that.
+ *
+ * And no, it's not as simple as just prohibiting concurrent opens or
+ * reads with a mutex: there are legit reasons for truy concurrent
+ * access, but they must be treated carefully in this interface lest a
+ * partial reader end up with a mixture of old and new samples. This
+ * will make some users unhappy.
+ *
+ ****************************************************************************/
+
+static int icm_open(FAR struct file *filep)
+{
+  FAR struct inode *inode = filep->f_inode;
+  FAR struct icm_dev_s *dev = inode->i_private;
+  int ret = OK;
+
+  nxmutex_lock(&dev->lock);
+
+  dev->crefs++; // How many fds are open
+
+  if (dev->crefs == 1)   /* first opener — actually start the hardware */
+      {
+        ret = icm_reset(dev);          /* configure registers */
+        ret = icm_fifo_start(dev);     /* arm watermark + IRQ */
+      }
+
+  nxmutex_unlock(&dev->lock);
+
+  return ret;
+}
+
+/****************************************************************************
+ * Name: icm_close
+ ****************************************************************************/
+
+static int icm_close(FAR struct file *filep)
+{
+  FAR struct inode *inode = filep->f_inode;
+  FAR struct icm_dev_s *dev = inode->i_private;
+
+  nxmutex_lock(&dev->lock);
+
+  dev->crefs--;
+
+  if (dev->crefs == 0)   /* last closer — shut hardware down */
+    {
+      work_cancel(HPWORK, &dev->fifo_work);  /* cancel any pending work */
+      icm_fifo_stop(dev);                    /* disarm IRQ, disable FIFO */
+      circbuf_reset(&dev->fifo_rb);          /* flush stale samples */
+    }
+
+  nxmutex_unlock(&dev->lock);
+
+  return 0;
+}
  
 /****************************************************************************
  * icm_read() — replaces your current synchronous-SPI version.
@@ -672,8 +982,7 @@ static ssize_t icm_read(FAR struct file *filep, FAR char *buf, size_t len)
  * on the fd instead of busy-calling read(). Add this to g_icm_fops.
  ****************************************************************************/
  
-static int icm_poll(FAR struct file *filep, FAR struct pollfd *fds,
-                     bool setup)
+static int icm_poll(FAR struct file *filep, FAR struct pollfd *fds, bool setup)
 {
   FAR struct inode *inode = filep->f_inode;
   FAR struct icm_dev_s *dev = inode->i_private;
@@ -712,4 +1021,138 @@ static int icm_poll(FAR struct file *filep, FAR struct pollfd *fds,
  
   nxsem_post(&dev->rb_sem);
   return ret;
+}
+
+/****************************************************************************
+ * Name: icm40609d_ioctl
+ ****************************************************************************/
+
+static int icm_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
+{
+  FAR struct inode *inode = filep->f_inode;
+  FAR struct icm_dev_s *dev = inode->i_private;
+  uint8_t write_data = (uint8_t)arg;
+  int ret = OK;
+
+switch (cmd)
+    {
+      /* Set gyro full-scale range: ±125, ±250, ±500, ±1000, ±2000 dps */
+      case SNIOC_SET_GYRO_FSR:
+        ret = icm_set_gyro_fsr(dev, (uint16_t)arg);
+        if (ret < 0)
+          {
+            snerr("ERROR: SNIOC_SET_GYRO_FSR fails. Returns: %d\n", ret);
+          }
+        break;
+
+      /* Set accel full-scale range: ±4, ±8, ±16, ±32 g */
+      case SNIOC_SET_ACCEL_FSR:
+        ret = icm_set_accel_fsr(dev, (uint16_t)arg);
+        break;
+
+      /* Set ODR: 32000, 16000, 8000, 4000... Hz */
+      case SNIOC_SET_ODR:
+        ret = icm_set_odr(dev, (uint32_t)arg);
+        break;
+
+      /* Tune FIFO watermark without restarting — affects IRQ rate/latency */
+      case SNIOC_SET_WATERMARK:
+        ret = icm_set_watermark(dev, (uint16_t)arg);
+        break;
+
+      /* Read and clear the FIFO overflow counter from FIFO_LOST_PKT0/1 */
+      case SNIOC_GET_LOST_PKTS:
+        ret = icm_get_lost_packets(dev, (FAR uint32_t *)arg);
+        break;
+
+      /* Flush the ring buffer — discard buffered samples */
+      case SNIOC_RESET_FIFO:
+        nxsem_wait_uninterruptible(&dev->rb_sem);
+        circbuf_reset(&dev->fifo_rb);
+        nxsem_post(&dev->rb_sem);
+        break;
+
+      default:
+        sninfo("Unrecognized IOCTL command: 0x%04x\n", cmd);
+        ret = -ENOTTY;   /* standard POSIX response for unknown ioctl */
+        break;
+    }
+
+  return ret;
+}
+
+/****************************************************************************
+ * Public Functions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: icm40609d_register
+ *
+ * Description:
+ *   Registers the ICM-40609-D interface as 'devpath'
+ *
+ * Input Parameters:
+ *   devpath  - The full path to the interface to register. E.g., "/dev/imu0"
+ *   config   - Configuration information (SPI bus + chip-select)
+ *
+ * Returned Value:
+ *   Zero (OK) on success; a negated errno value on failure.
+ *
+ ****************************************************************************/
+
+int icm40609d_register(FAR const char *path, FAR struct icm_config_s *config)
+{
+  FAR struct icm_dev_s *priv;
+  int ret;
+
+  /* Without config info, we can't do anything. */
+
+  if (config == NULL)
+    {
+      return -EINVAL;
+    }
+
+  /* Initialize the device structure. */
+
+  priv = kmm_malloc(sizeof(struct icm_dev_s));  // Allocates the driver config struct on the kernel heap memory 
+  if (priv == NULL)
+    {
+      snerr("ERROR: Failed to allocate ICM-40609-D device instance\n");
+      return -ENOMEM;
+    }
+
+  memset(priv, 0, sizeof(*priv));
+  nxmutex_init(&priv->lock);
+
+  /* Keep a copy of the config structure, in case the caller discards
+   * theirs.
+   */
+
+  priv->config = *config;
+
+  /* Reset the chip, to give it an initial configuration. */
+
+  ret = icm_reset(priv);
+  if (ret < 0)
+    {
+      snerr("ERROR: Failed to configure ICM-40609-D: %d\n", ret);
+
+      nxmutex_destroy(&priv->lock);
+      kmm_free(priv);
+      return ret;
+    }
+
+  /* Register the device node. */
+
+  ret = register_driver(path, &g_icm_fops, 0666, priv);
+  if (ret < 0)
+    {
+      snerr("ERROR: Failed to register ICM-40609-D interface: %d\n", ret);
+
+      nxmutex_destroy(&priv->lock);
+      kmm_free(priv);
+      return ret;
+    }
+
+  return OK;
 }

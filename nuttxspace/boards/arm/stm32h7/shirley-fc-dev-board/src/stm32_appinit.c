@@ -225,6 +225,9 @@ int board_app_initialize(uintptr_t arg)
 {
   int ret;
 
+  // Calls stm32_bringup to initialise buses, cxx...
+  stm32_bringup();
+
   /* Register sensor drivers.
    *    Each call is non-fatal — a missing sensor logs a warning but
    *    does not prevent the rest of the system from starting.

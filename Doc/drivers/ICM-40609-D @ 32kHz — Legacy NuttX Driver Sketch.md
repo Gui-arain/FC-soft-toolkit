@@ -46,14 +46,14 @@ real-time budget for IRQ → worker-thread → SPI-burst-drain.
 ## 3. Driver-side state machine
 
 ```
-                 ┌─────────────────────────┐
+                 ┌──────────────────────────┐
  IRQ (FIFO_THS)  │  GPIO ISR (fast, no SPI) │  posts work to LP/HP worker queue,
  ───────────────►│  - clears nothing here   │  or gives a semaphore to a kthread
                  │  - just signals          │
                  └────────────┬─────────────┘
                               │
                               ▼
-                 ┌─────────────────────────┐
+                 ┌──────────────────────────┐
                  │ Bottom half (worker      │  1. SPI: read FIFO_COUNTH/L  (2B)
                  │ thread / high-prio task) │  2. SPI: burst-read N*16 bytes from
                  │                          │     FIFO_DATA in ONE transaction
@@ -202,3 +202,54 @@ after kicking the read.
   controller-specific; using `SPI_EXCHANGE()` with a prepared TX buffer
   (`[reg_addr, 0xff, 0xff, ...]`) handles this as one transaction on most platforms,
   but verify against your actual SPI lower-half implementation.
+
+### Full thread process timeline
+
+```
+HPWORK THREAD                  USERSPACE APP TASK             IRQ CONTEXT
+──────────────────────────────────────────────────────────────────────────
+
+                               open("/dev/imu0")
+                                  │
+                               poll(fd, ...)  ← syscall
+                                  │
+                               [NuttX VFS calls icm_poll()]
+                                  │  registers app's pollfd
+                                  │  in dev->fds[]
+                                  │  circbuf empty → nothing yet
+                               [task suspended by scheduler]
+                               [CPU free]
+
+                                                          FIFO_THS fires
+                                                             │
+                                                          icm_fifo_isr()
+                                                             │
+                                                          work_queue(HPWORK,
+                                                          icm_fifo_worker)
+                                                             │
+                                                          returns (ISR done)
+
+icm_fifo_worker() runs
+  __icm_read_reg(FIFO_COUNTH/L)
+  __icm_read_reg(FIFO_DATA, N bytes)
+  parse packets
+  circbuf_write(samples)
+  poll_notify(dev->fds)  ──────► [NuttX wakes the app task]
+                                  [scheduler puts it back
+                                   on the run queue]
+(worker done)
+
+                               [app task runs again]
+                               poll() returns
+                                  │
+                               read(fd, buf, len)  ← syscall
+                                  │
+                               [NuttX VFS calls icm_read()]
+                                  │  circbuf_read(samples)
+                                  │  copies to userspace buf
+                               [icm_read() returns]
+                                  │
+                               process samples...
+                                  │
+                               poll(fd, ...)  ← blocks again
+```
