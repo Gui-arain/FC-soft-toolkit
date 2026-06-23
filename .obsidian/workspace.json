@@ -97,12 +97,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Doc/helpers/Vocabulary.md",
+                "file": "Doc/helpers/C++ Cheat Sheet.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "Vocabulary"
+              "title": "C++ Cheat Sheet"
             }
           }
         ],
@@ -270,8 +270,8 @@
   },
   "active": "6dbe9dc09ca20c3d",
   "lastOpenFiles": [
-    "Doc/drivers/ICM-40609-D @ 32kHz — Legacy NuttX Driver Sketch.md",
     "Doc/helpers/Vocabulary.md",
+    "Doc/drivers/ICM-40609-D @ 32kHz — Legacy NuttX Driver Sketch.md",
     "Doc/FC First Bringup 🌱.md",
     "Doc/JLink Cheatsheet ⛓️.md",
     "Doc/NuttX Board Port.md",

@@ -43,6 +43,10 @@ stm32h743ZIT6:
     miso: PF8
     mosi: PF9
     cs: PF10
+  
+  Int:  #Interrupts signals
+    imu_int1: PF5   #IMU INT1 pin
+    mag_int: PC14   #MAG INT pin
 
   i2c1:   #I2C Connector (ex: External Compass)
     sda: PB7

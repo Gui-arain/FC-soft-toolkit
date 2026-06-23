@@ -58,9 +58,12 @@
 
 #define ICM_FIFO_PACKET_SIZE   16    /* Packet 3: accel+gyro+temp+tmst   */
 #define ICM_FIFO_MAX_BYTES     2080  /* datasheet-mandated allocation, §6.3 */
+#define ICM_FIFO_MAX_RECS      ICM_FIFO_MAX_BYTES / ICM_FIFO_PACKET_SIZE  // Size of the FIFO buffer in number of samples
 #define ICM_FIFO_HEADER_MSG    BIT(7)  /* 1 = FIFO empty / padding entry */
 #define ICM_FIFO_HEADER_ACCEL  BIT(6)
 #define ICM_FIFO_HEADER_GYRO   BIT(5)
+
+#define FIFO_WM_REC_TH 50 // Default watermark threshold in number of samples
 
 #define ICM_NPOLLWAITERS       4
 
@@ -110,8 +113,8 @@ enum icm_regaddr_e
   /* FIFO mode (Bank 0) */
 
   FIFO_CONFIG = 0x16,
-  FIFO_CONFIG__FIFO_MODE__SHIFT = 6,
-  FIFO_CONFIG__FIFO_MODE__WIDTH = 2,
+  FIFO_CONFIG__FIFO_MODE_STREAM = BIT(7),
+  FIFO_CONFIG__FIFO_MODE_STOP = BIT(7) | BIT(6),
 
   /* Sensor output registers — read sequentially from TEMP_DATA1 for
    * an atomic snapshot (14 bytes: temp, accel XYZ, gyro XYZ).
@@ -438,7 +441,7 @@ struct icm_dev_s
   sem_t                rb_sem;         /* protects fifo_rb (NOT dev->lock) */
   struct work_s        fifo_work;      /* work_queue() job token */
   FAR struct pollfd   *fds[ICM_NPOLLWAITERS];
-  uint16_t             watermark_bytes; //configures the watermark threshold after which the IMU will trigger an interrupt
+  uint16_t             watermark_samples; //configures the watermark threshold after which the IMU will trigger an interrupt
   bool                 streaming;     /* true once FIFO+IRQ both armed */
   int                  crefs          // Tracks how many fds are open
 };
@@ -647,7 +650,27 @@ static int __icm_read_fifo_count(FAR struct icm_dev_s *dev, u_int16_t *fifo_byte
 
 static int icm_reset(FAR struct icm_dev_s *dev)
 {
+  int ret = OK;
 
+  /* Signal reset handling:
+   * SIGNAL_PATH_RESET__ABORT_AND_RESET = 1     => we don't manually read the tmst in TMST_VALUE
+   * SIGNAL_PATH_RESET__TMST_STROBE = 0       
+   * SIGNAL_PATH_RESET__FIFO_FLUSH = 1          => Flush FIFO buffer
+   */
+  const uint8_t signal_path_reset = SIGNAL_PATH_RESET__ABORT_AND_RESET |SIGNAL_PATH_RESET__FIFO_FLUSH ;
+
+  /* STM32s are strictly little-endian so we reconfigure the IMU like so
+   * INTF_CONFIG0__FIFO_COUNT_ENDIAN = 0
+   * INTF_CONFIG0__SENSOR_DATA_ENDIAN = 0
+   * We also configure FIFO_COUNT in samples instead of bytes
+   */
+  const uint8_t intf_config0 = INTF_CONFIG0__FIFO_HOLD_LAST_DATA_EN | INTF_CONFIG0__FIFO_COUNT_REC;
+
+  const uint8_t reset_config[2] = {signal_path_reset, intf_config0};
+
+  ret = __icm_write_reg(dev, INTF_CONFIG0, &reset_config, sizeof(reset_config));
+
+  return ret;
 }
 
 /****************************************************************************
@@ -660,14 +683,44 @@ static int icm_reset(FAR struct icm_dev_s *dev)
 
 static int icm_fifo_start(FAR struct icm_dev_s *dev)
 {
-  /* FIFO config 
-  * enable gyro output, accel output, timestamp output
-  */
-  const uint8_t fifo_mode = FIFO_CONFIG1__FIFO_GYRO_EN | FIFO_CONFIG1__FIFO_ACCEL_EN | FIFO_CONFIG1__FIFO_TMST_FSYNC_EN; 
-
   int ret = OK;
+  // Enable FIFO stream mode (no stop when full)
+  const uint8_t fifo_config = FIFO_CONFIG__FIFO_MODE_STREAM;
 
-  ret = __icm_write_reg(dev, FIFO_CONFIG1, &fifo_mode, sizeof(fifo_mode));
+  /* Timestamp configuration for the FIFO output
+   * TMST_TO_REGS_EN = 0              => we don't manually read the tmst in TMST_VALUE
+   * TMST_CONFIG__TMST_RES = 1        => resolution = 1us
+   * TMST_CONFIG__TMST_DELTA_EN = 0
+   * TMST_CONFIG__TMST_FSYNC = 0
+   * TMST_CONFIG__TMST_EN = 1
+   */
+  const uint8_t tmst_config = TMST_CONFIG__TMST_RES | TMST_CONFIG__TMST_EN;
+
+  /* FIFO configuration: 
+   * FIFO_CONFIG1__FIFO_RESUME_PARTIAL_RD = 1   => enables to read only a part of the buffer
+   * FIFO_CONFIG1__FIFO_WM_GT_TH = 1            => enables the trigger when reaching the watermark
+   * FIFO_CONFIG1__FIFO_TMST_FSYNC_EN = 0       => we don't use the FSYNC feature (no external sync trigger)
+   * FIFO_CONFIG1__FIFO_TEMP_EN = 1             => should be enabled by default when using gyro + acc
+   * FIFO_CONFIG1__FIFO_GYRO_EN = 1
+   * FIFO_CONFIG1__FIFO_ACCEL_EN = 1
+   */
+  const uint8_t fifo_config1 = FIFO_CONFIG1__FIFO_RESUME_PARTIAL_RD | FIFO_CONFIG1__FIFO_WM_GT_TH | FIFO_CONFIG1__FIFO_TEMP_EN |FIFO_CONFIG1__FIFO_GYRO_EN | FIFO_CONFIG1__FIFO_ACCEL_EN; 
+  
+  // Watermark threshold config based on the icm dev struct variable
+  const uint8_t fifo_config2 = (uint8_t)(dev->watermark_samples);
+  
+  /* Interrupt output 1 configuration
+   * INT_SOURCE0__FIFO_THS_INT1_EN = 1        => configure INT1 on the FIFO watermark threshold
+   * INT_SOURCE0__FIFO_FULL_INT1_EN = 0       => we don't trigger on full FIFO
+   */
+  const uint8_t int_source0 = INT_SOURCE0__FIFO_THS_INT1_EN;
+
+  const uint8_t fifo_config12[2] = {fifo_config1, fifo_config2};
+
+  ret = __icm_write_reg(dev, FIFO_CONFIG, &fifo_config, sizeof(fifo_config));
+  ret = __icm_write_reg(dev, FIFO_CONFIG, &tmst_config, sizeof(tmst_config));
+  ret = __icm_write_reg(dev, FIFO_CONFIG1, &fifo_config12, sizeof(fifo_config12));
+  ret = __icm_write_reg(dev, FIFO_CONFIG, &int_source0, sizeof(int_source0));
 
   return ret;
 }
