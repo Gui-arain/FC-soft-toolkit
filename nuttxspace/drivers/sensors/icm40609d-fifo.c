@@ -202,10 +202,10 @@ enum icm_regaddr_e
   PWR_MGMT0 = 0x4e,                        /* Reset: 0x00 */
   PWR_MGMT0__TEMP_DIS = BIT(5),
   PWR_MGMT0__IDLE = BIT(4),
-  PWR_MGMT0__GYRO_MODE__SHIFT = 2,
-  PWR_MGMT0__GYRO_MODE__WIDTH = 2,
-  PWR_MGMT0__ACCEL_MODE__SHIFT = 0,
-  PWR_MGMT0__ACCEL_MODE__WIDTH = 2,
+  PWR_MGMT0__GYRO_MODE_STANDBY = BIT(2),
+  PWR_MGMT0__GYRO_MODE_LN = BIT(3) | BIT(2),  // Low noise mode
+  PWR_MGMT0__ACCEL_MODE_LP = BIT(1),          // Low power mode
+  PWR_MGMT0__ACCEL_MODE_LN = BIT(1) | 0x01,               // Low noise mode
 
   /* Gyroscope configuration (Bank 0)
    *
@@ -643,8 +643,9 @@ static int __icm_read_fifo_count(FAR struct icm_dev_s *dev, u_int16_t *fifo_byte
 /****************************************************************************
  * icm_reset()
  *
- * Configure the required registers when opening the driver before streaming
- * 
+ * Resets the IMU signal path / FIFO buffer
+ * Configures the little-endian convention
+ * Turn Gyro and Accel back on (in Low Noise mode)
  * 
  ****************************************************************************/
 
@@ -653,22 +654,34 @@ static int icm_reset(FAR struct icm_dev_s *dev)
   int ret = OK;
 
   /* Signal reset handling:
-   * SIGNAL_PATH_RESET__ABORT_AND_RESET = 1     => we don't manually read the tmst in TMST_VALUE
+   * SIGNAL_PATH_RESET__ABORT_AND_RESET = 1     => Reset the entire signal path
    * SIGNAL_PATH_RESET__TMST_STROBE = 0       
    * SIGNAL_PATH_RESET__FIFO_FLUSH = 1          => Flush FIFO buffer
    */
   const uint8_t signal_path_reset = SIGNAL_PATH_RESET__ABORT_AND_RESET |SIGNAL_PATH_RESET__FIFO_FLUSH ;
 
-  /* STM32s are strictly little-endian so we reconfigure the IMU like so
-   * INTF_CONFIG0__FIFO_COUNT_ENDIAN = 0
+  /* Endian connfig and records count
+   * INTF_CONFIG0__FIFO_HOLD_LAST_DATA_EN = 1
+   * INTF_CONFIG0__FIFO_COUNT_ENDIAN = 0        => STM32s are strictly little-endian so we reconfigure the IMU like so
    * INTF_CONFIG0__SENSOR_DATA_ENDIAN = 0
-   * We also configure FIFO_COUNT in samples instead of bytes
+   * INTF_CONFIG0__FIFO_COUNT_REC = 1           => We also configure FIFO_COUNT in samples instead of bytes
    */
   const uint8_t intf_config0 = INTF_CONFIG0__FIFO_HOLD_LAST_DATA_EN | INTF_CONFIG0__FIFO_COUNT_REC;
 
-  const uint8_t reset_config[2] = {signal_path_reset, intf_config0};
+  /* 6-axis low-noise mode: gyro LN + accel LN */
+  const uint8_t pwr_mgmt0 = PWR_MGMT0__GYRO_MODE_LN | PWR_MGMT0__ACCEL_MODE_LN;
 
-  ret = __icm_write_reg(dev, INTF_CONFIG0, &reset_config, sizeof(reset_config));
+  ret = __icm_write_reg(dev, SIGNAL_PATH_RESET, &signal_path_reset, 1);
+  if (ret < 0) return ret;
+
+  up_mdelay(1);   /* wait for reset to complete */
+
+  ret = __icm_write_reg(dev, INTF_CONFIG0, &intf_config0, 1);
+  if (ret < 0) return ret;
+
+  ret = __icm_write_reg(dev, PWR_MGMT0, &pwr_mgmt0, 1);
+
+  up_udelay(200);   /* datasheet: ≥200µs before issuing any register writes */
 
   return ret;
 }
@@ -676,8 +689,9 @@ static int icm_reset(FAR struct icm_dev_s *dev)
 /****************************************************************************
  * icm_fifo_start()
  *
- * Configure the watermark and enables the IRQ
- * 
+ * Configure the required FIFO registers
+ * Attach and enable the watermark interrupt and 
+ * ties it to our interrupt handling function
  * 
  ****************************************************************************/
 
@@ -704,10 +718,12 @@ static int icm_fifo_start(FAR struct icm_dev_s *dev)
    * FIFO_CONFIG1__FIFO_GYRO_EN = 1
    * FIFO_CONFIG1__FIFO_ACCEL_EN = 1
    */
-  const uint8_t fifo_config1 = FIFO_CONFIG1__FIFO_RESUME_PARTIAL_RD | FIFO_CONFIG1__FIFO_WM_GT_TH | FIFO_CONFIG1__FIFO_TEMP_EN |FIFO_CONFIG1__FIFO_GYRO_EN | FIFO_CONFIG1__FIFO_ACCEL_EN; 
+  const uint8_t fifo_config1 = FIFO_CONFIG1__FIFO_RESUME_PARTIAL_RD | FIFO_CONFIG1__FIFO_WM_GT_TH | 
+                               FIFO_CONFIG1__FIFO_TEMP_EN |FIFO_CONFIG1__FIFO_GYRO_EN | FIFO_CONFIG1__FIFO_ACCEL_EN; 
   
   // Watermark threshold config based on the icm dev struct variable
-  const uint8_t fifo_config2 = (uint8_t)(dev->watermark_samples);
+  const uint8_t fifo_config2 = (uint8_t)(dev->watermark_samples & 0xff);
+  const uint8_t fifo_config3 = (uint8_t)((dev->watermark_samples >> 8) & 0xff);
   
   /* Interrupt output 1 configuration
    * INT_SOURCE0__FIFO_THS_INT1_EN = 1        => configure INT1 on the FIFO watermark threshold
@@ -715,12 +731,25 @@ static int icm_fifo_start(FAR struct icm_dev_s *dev)
    */
   const uint8_t int_source0 = INT_SOURCE0__FIFO_THS_INT1_EN;
 
-  const uint8_t fifo_config12[2] = {fifo_config1, fifo_config2};
+  /* These registers are next to each other in bank 0
+     This allows reducing the number of times we call __icm_write_reg() */ 
+  const uint8_t fifo_config123[3] = {fifo_config1, fifo_config2, fifo_config3};
 
-  ret = __icm_write_reg(dev, FIFO_CONFIG, &fifo_config, sizeof(fifo_config));
-  ret = __icm_write_reg(dev, FIFO_CONFIG, &tmst_config, sizeof(tmst_config));
-  ret = __icm_write_reg(dev, FIFO_CONFIG1, &fifo_config12, sizeof(fifo_config12));
-  ret = __icm_write_reg(dev, FIFO_CONFIG, &int_source0, sizeof(int_source0));
+  ret = __icm_write_reg(dev, FIFO_CONFIG, &fifo_config, 1);
+  if(ret < 0)return ret;  // if an error occured, directly abort and returns it
+
+  ret = __icm_write_reg(dev, TMST_CONFIG, &tmst_config, 1);
+  if(ret < 0)return ret;
+
+  ret = __icm_write_reg(dev, FIFO_CONFIG1, &fifo_config123, 3);
+  if(ret < 0)return ret;
+
+  ret = __icm_write_reg(dev, INT_SOURCE0, &int_source0, 1);
+  if(ret < 0)return ret;
+
+  // Attach and enable the interrupt on pin PF5 and pass the interrupt handler function
+  irq_attach(STM32_IRQ_EXTI95, icm_fifo_isr, dev);
+  up_enable_irq(STM32_IRQ_EXTI95);
 
   return ret;
 }
@@ -785,8 +814,8 @@ static void icm_fifo_worker(FAR void *arg)
 {
   FAR struct icm_dev_s *dev = (FAR struct icm_dev_s *)arg;
   uint8_t raw[ICM_FIFO_MAX_BYTES];
-  uint16_t fifo_bytes;
-  uint16_t n_packets;
+  uint16_t fifo_packets;
+  uint16_t n_bytes;
   uint16_t i;
   int ret;
  
@@ -797,14 +826,14 @@ static void icm_fifo_worker(FAR void *arg)
    * have at 32kHz — read the count first, then read exactly that much.
    */
  
-  ret = __icm_read_fifo_count(dev, &fifo_bytes);
-  if (ret < 0 || fifo_bytes == 0)
+  ret = __icm_read_fifo_count(dev, &fifo_packets);
+  if (ret < 0 || fifo_packets == 0)
     {
-      nxmutex_unlock(&dev->lock);
+      nxmutex_unlock(&dev->lock);   // If no packets available in FIFO or an error occured we end the worker 
       return;
     }
  
-  if (fifo_bytes > ICM_FIFO_MAX_BYTES)
+  if (fifo_packets > ICM_FIFO_MAX_RECS)
     {
       /* Shouldn't happen given the datasheet's storage ceiling — if it
        * does, something upstream (servicing latency, SPI clock, watermark
@@ -812,33 +841,18 @@ static void icm_fifo_worker(FAR void *arg)
        * buffer.
        */
  
-      snerr("ERROR: FIFO count %u exceeds expected max %u — "
-            "check watermark/latency budget\n",
-            fifo_bytes, ICM_FIFO_MAX_BYTES);
-      fifo_bytes = ICM_FIFO_MAX_BYTES;
-    }
- 
-  /* Round down to a whole number of packets — a partial trailing packet
-   * means we read mid-write; leave those bytes for next time rather than
-   * mis-parsing them. (FIFO_RESUME_PARTIAL_RD in FIFO_CONFIG1 affects
-   * this behavior — check it matches what you assume here.)
-   */
- 
-  n_packets = fifo_bytes / ICM_FIFO_PACKET_SIZE;
-  fifo_bytes = n_packets * ICM_FIFO_PACKET_SIZE;
- 
-  if (n_packets == 0)
-    {
-      nxmutex_unlock(&dev->lock);
-      return;
+      snerr("ERROR: FIFO count %u exceeds expected max %u — check watermark/latency budget\n",
+            fifo_packets, ICM_FIFO_MAX_RECS);
+      fifo_packets = ICM_FIFO_MAX_RECS;
     }
  
   /* Step 2: ONE burst SPI transaction for everything waiting. This is the
    * part that actually gives you the throughput to keep up with 32kHz —
    * not the interrupt model alone.
    */
+  n_bytes = fifo_packets*ICM_FIFO_PACKET_SIZE;
  
-  ret = __icm_read_reg(dev, FIFO_DATA, raw, fifo_bytes);
+  ret = __icm_read_reg(dev, FIFO_DATA, raw, n_bytes);
   if (ret < 0)
     {
       snerr("ERROR: FIFO burst read failed: %d\n", ret);
@@ -854,7 +868,7 @@ static void icm_fifo_worker(FAR void *arg)
  
   nxsem_wait_uninterruptible(&dev->rb_sem);
  
-  for (i = 0; i < n_packets; i++)
+  for (i = 0; i < fifo_packets; i++)
     {
       FAR uint8_t *pkt = &raw[i * ICM_FIFO_PACKET_SIZE];
       uint8_t header = pkt[0];
@@ -863,7 +877,7 @@ static void icm_fifo_worker(FAR void *arg)
       if (header & ICM_FIFO_HEADER_MSG)
         {
           /* Empty-FIFO padding marker — datasheet §6.2. Stop here; no
-           * more real packets follow even if n_packets implied there
+           * more real packets follow even if fifo_packets implied there
            * should be (count and content can race against the live
            * FIFO write pointer).
            */
@@ -871,8 +885,7 @@ static void icm_fifo_worker(FAR void *arg)
           break;
         }
  
-      if (!(header & ICM_FIFO_HEADER_ACCEL) ||
-          !(header & ICM_FIFO_HEADER_GYRO))
+      if (!(header & ICM_FIFO_HEADER_ACCEL) || !(header & ICM_FIFO_HEADER_GYRO))
         {
           /* We configured the FIFO for combined accel+gyro packets only.
            * Anything else means either a config mismatch or a corrupted
@@ -880,9 +893,8 @@ static void icm_fifo_worker(FAR void *arg)
            * bytes as if alignment is still good.
            */
  
-          snerr("ERROR: Unexpected FIFO header 0x%02x at packet %u/%u — "
-                "aborting parse, dropping rest of this burst\n",
-                header, i, n_packets);
+          snerr("ERROR: Unexpected FIFO header 0x%02x at packet %u/%u — aborting parse, dropping rest of this burst\n",
+                header, i, fifo_packets);
           break;
         }
  
