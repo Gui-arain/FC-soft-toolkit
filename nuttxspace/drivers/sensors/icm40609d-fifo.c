@@ -28,6 +28,7 @@
 #include <nuttx/circbuf.h>    /* ring buffer */
 #include <nuttx/semaphore.h>
 #include <poll.h>
+#include <math.h>
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -404,6 +405,65 @@ enum icm_regaddr_e
   REG_BANK_SEL = 0x76,
   REG_BANK_SEL__BANK_SEL__SHIFT = 0,
   REG_BANK_SEL__BANK_SEL__WIDTH = 3,
+
+  /* Gyro notch-filter coefficient registers (Bank 1).
+   * Switch to Bank 1 via REG_BANK_SEL before accessing these.
+   *
+   * GYRO_CONFIG_STATIC9 layout:
+   *   bit[0] = X_NF_COSWZ[8]     (MSB of the 9-bit X coefficient)
+   *   bit[1] = Y_NF_COSWZ[8]
+   *   bit[2] = Z_NF_COSWZ[8]
+   *   bit[3] = X_NF_COSWZ_SEL    (encoding selector, see icm_dnf_compute_coswz)
+   *   bit[4] = Y_NF_COSWZ_SEL
+   *   bit[5] = Z_NF_COSWZ_SEL
+   */
+
+  GYRO_CONFIG_STATIC6 = 0x0B,   /* RW Bank 1 – X_NF_COSWZ[7:0] */
+  GYRO_CONFIG_STATIC7 = 0x0C,   /* RW Bank 1 – Y_NF_COSWZ[7:0] */
+  GYRO_CONFIG_STATIC8 = 0x0D,   /* RW Bank 1 – Z_NF_COSWZ[7:0] */
+  GYRO_CONFIG_STATIC9 = 0x0E,   /* RW Bank 1 – {XYZ}_NF_COSWZ[8], {XYZ}_NF_COSWZ_SEL */
+
+  /* Gyro notch-filter global enable and bandwidth (Bank 1).
+   * GYRO_NF_DIS = 1 disables the notch filter (active-low sense).
+   * GYRO_NF_BW_SEL selects the notch bandwidth:
+   *   0=1449 Hz, 1=680 Hz, 2=329 Hz, 3=162 Hz,
+   *   4=80 Hz,   5=40 Hz,  6=20 Hz,  7=10 Hz
+   */
+
+  GYRO_CONFIG_STATIC0 = 0x03,                        /* RW Bank 1 */
+  GYRO_CONFIG_STATIC0__GYRO_NF_DIS = BIT(0),         /* 1 = NF disabled */
+  GYRO_CONFIG_STATIC0__GYRO_NF_BW_SEL__SHIFT = 3,
+  GYRO_CONFIG_STATIC0__GYRO_NF_BW_SEL__WIDTH = 3,
+
+  /* Accelerometer anti-aliasing filter (Bank 1).
+   * ACCEL_AAF_DIS = 1 disables the filter (active-low sense).
+   */
+
+  ACCEL_CONFIG_STATIC2 = 0x1C,                       /* RW Bank 1 */
+  ACCEL_CONFIG_STATIC2__ACCEL_AAF_DIS = BIT(0),      /* 1 = AAF disabled */
+
+  /* User offset trim registers (Bank 4).
+   * Offsets are 12-bit two's complement, split across adjacent bytes:
+   *   OFFSET_USER0  GX[7:0]
+   *   OFFSET_USER1  GY[11:8] | GX[11:8]
+   *   OFFSET_USER2  GY[7:0]
+   *   OFFSET_USER3  GZ[7:0]
+   *   OFFSET_USER4  AX[11:8] | GZ[11:8]   ← shared, requires RMW
+   *   OFFSET_USER5  AX[7:0]
+   *   OFFSET_USER6  AY[7:0]
+   *   OFFSET_USER7  AZ[11:8] | AY[11:8]
+   *   OFFSET_USER8  AZ[7:0]
+   */
+
+  OFFSET_USER0 = 0x77,  /* RW Bank 4 – GX_OFF_USR[7:0]                      */
+  OFFSET_USER1 = 0x78,  /* RW Bank 4 – GY_OFF_USR[11:8] | GX_OFF_USR[11:8]  */
+  OFFSET_USER2 = 0x79,  /* RW Bank 4 – GY_OFF_USR[7:0]                      */
+  OFFSET_USER3 = 0x7A,  /* RW Bank 4 – GZ_OFF_USR[7:0]                      */
+  OFFSET_USER4 = 0x7B,  /* RW Bank 4 – AX_OFF_USR[11:8] | GZ_OFF_USR[11:8]  */
+  OFFSET_USER5 = 0x7C,  /* RW Bank 4 – AX_OFF_USR[7:0]                      */
+  OFFSET_USER6 = 0x7D,  /* RW Bank 4 – AY_OFF_USR[7:0]                      */
+  OFFSET_USER7 = 0x7E,  /* RW Bank 4 – AZ_OFF_USR[11:8] | AY_OFF_USR[11:8]  */
+  OFFSET_USER8 = 0x7F,  /* RW Bank 4 – AZ_OFF_USR[7:0]                      */
 };
 
 
@@ -428,11 +488,14 @@ struct icm_dev_s
   mutex_t lock;               /* mutex for this structure */
   struct icm_config_s config; /* board-specific information */
 
+  /* --- IMU configurations --- */
   uint8_t gyro_odr;           /* gyro output data rate selector */
   uint8_t accel_odr;          /* accel output data rate selector */
   uint8_t afs_sel;            /* full scale range of the accelerometer */
   uint8_t dnf_config;         /* digital notch filter configuration */
   uint8_t daaf_config;        /* digital anti aliasing filter configuration */
+  bool dnf_active;
+  bool aaf_active;
   float sample_rate;          /* current sample rate */
   //bool fifo_enabled;          /* current enable state of FIFO buffer */ -> always enabled in this version
   
@@ -441,7 +504,7 @@ struct icm_dev_s
   sem_t                rb_sem;         /* protects fifo_rb (NOT dev->lock) */
   struct work_s        fifo_work;      /* work_queue() job token */
   FAR struct pollfd   *fds[ICM_NPOLLWAITERS];
-  uint16_t             watermark_samples; //configures the watermark threshold after which the IMU will trigger an interrupt
+  uint16_t             watermark_samples; // Configures the watermark threshold after which the IMU will trigger an interrupt
   bool                 streaming;     /* true once FIFO+IRQ both armed */
   int                  crefs          // Tracks how many fds are open
 };
@@ -455,6 +518,25 @@ static int icm_close(FAR struct file *filep);
 static ssize_t icm_read(FAR struct file *filep, FAR char *buf, size_t len);
 static int icm_poll(FAR struct file *filep, FAR struct pollfd *fds, bool setup);
 static int icm_ioctl(FAR struct file *filep, int cmd, unsigned long arg);
+
+static int icm_set_gyro_fsr(FAR struct icm_dev_s *dev, uint16_t dps);
+static int icm_set_accel_fsr(FAR struct icm_dev_s *dev, uint16_t g);
+static int icm_set_odr(FAR struct icm_dev_s *dev, uint32_t hz);
+static int icm_set_watermark(FAR struct icm_dev_s *dev, uint16_t samples);
+static int icm_get_lost_packets(FAR struct icm_dev_s *dev, FAR uint32_t *count);
+static int icm_set_gyro_dnf_freq(FAR struct icm_dev_s *dev, uint32_t hz);
+static int icm_set_gyro_dnf_bandwidth(FAR struct icm_dev_s *dev, uint32_t hz);
+static int icm_set_gyro_offset(FAR struct icm_dev_s *dev, FAR const struct icm40609d_offset_s *off);
+static int icm_set_accel_offset(FAR struct icm_dev_s *dev, FAR const struct icm40609d_offset_s *off);
+static int icm_set_gyro_dnf_en(FAR struct icm_dev_s *dev, bool en);
+static int icm_set_accel_aaf_en(FAR struct icm_dev_s *dev, bool en);
+static int icm_set_gyro_dnf_freq_x(FAR struct icm_dev_s *dev, uint32_t hz);
+static int icm_set_gyro_dnf_freq_y(FAR struct icm_dev_s *dev, uint32_t hz);
+static int icm_set_gyro_dnf_freq_z(FAR struct icm_dev_s *dev, uint32_t hz);
+static int icm_set_gyro_ui_filt_ord(FAR struct icm_dev_s *dev, uint8_t order);
+static int icm_set_accel_ui_filt_ord(FAR struct icm_dev_s *dev, uint8_t order);
+static int icm_set_gyro_ui_filt_bw(FAR struct icm_dev_s *dev, uint8_t bw);
+static int icm_set_accel_ui_filt_bw(FAR struct icm_dev_s *dev, uint8_t bw);
 
 /****************************************************************************
  * Struct containing our function pointers so that NuttX VFS
@@ -612,6 +694,18 @@ static inline int __icm_write_reg(FAR struct icm_dev_s *dev,  enum icm_regaddr_e
   return -ENODEV;
 }
 
+/* __icm_set_bank()
+ *
+ * Switches the active register bank via REG_BANK_SEL.
+ * Caller must hold dev->lock.
+ * Always restore Bank 0 after accessing Bank 1/2/4 registers.
+ */
+
+static inline int __icm_set_bank(FAR struct icm_dev_s *dev, uint8_t bank)
+{
+  return __icm_write_reg(dev, REG_BANK_SEL, &bank, 1);
+}
+
 /* __icm_read_fifo_count()
  *
  * Reads how many bytes are available in the IMU FIFO
@@ -671,6 +765,8 @@ static int icm_reset(FAR struct icm_dev_s *dev)
   /* 6-axis low-noise mode: gyro LN + accel LN */
   const uint8_t pwr_mgmt0 = PWR_MGMT0__GYRO_MODE_LN | PWR_MGMT0__ACCEL_MODE_LN;
 
+  nxmutex_lock(&dev->lock);
+
   ret = __icm_write_reg(dev, SIGNAL_PATH_RESET, &signal_path_reset, 1);
   if (ret < 0) return ret;
 
@@ -680,6 +776,8 @@ static int icm_reset(FAR struct icm_dev_s *dev)
   if (ret < 0) return ret;
 
   ret = __icm_write_reg(dev, PWR_MGMT0, &pwr_mgmt0, 1);
+
+  nxmutex_unlock(&dev->lock);
 
   up_udelay(200);   /* datasheet: ≥200µs before issuing any register writes */
 
@@ -735,6 +833,8 @@ static int icm_fifo_start(FAR struct icm_dev_s *dev)
      This allows reducing the number of times we call __icm_write_reg() */ 
   const uint8_t fifo_config123[3] = {fifo_config1, fifo_config2, fifo_config3};
 
+  nxmutex_lock(&dev->lock);
+
   ret = __icm_write_reg(dev, FIFO_CONFIG, &fifo_config, 1);
   if(ret < 0)return ret;  // if an error occured, directly abort and returns it
 
@@ -751,6 +851,10 @@ static int icm_fifo_start(FAR struct icm_dev_s *dev)
   irq_attach(STM32_IRQ_EXTI95, icm_fifo_isr, dev);
   up_enable_irq(STM32_IRQ_EXTI95);
 
+  dev->streaming = true; // Signals the FIFO+IRQ are armed and streaming
+
+  nxmutex_unlock(&dev->lock);
+
   return ret;
 }
 
@@ -764,7 +868,37 @@ static int icm_fifo_start(FAR struct icm_dev_s *dev)
 
 static int icm_fifo_stop(FAR struct icm_dev_s *dev)
 {
+  int ret;
+  const uint8_t zeroes = 0x00;
 
+  /* Disarm first — prevents a race where the ISR fires between disabling
+   * the FIFO and detaching the handler.
+   */
+
+  up_disable_irq(STM32_IRQ_EXTI95);
+  irq_detach(STM32_IRQ_EXTI95);
+
+  nxmutex_lock(&dev->lock);
+  /* Clear INT1 FIFO threshold routing. */
+
+  ret = __icm_write_reg(dev, INT_SOURCE0, &zeroes, 1);
+  if (ret < 0)return ret;
+
+  /* Disable sensor enables in FIFO. */
+
+  ret = __icm_write_reg(dev, FIFO_CONFIG1, &zeroes, 1);
+  if (ret < 0)return ret;
+
+  /* Put FIFO back to bypass mode (clears stream bit). */
+
+  ret = __icm_write_reg(dev, FIFO_CONFIG, &zeroes, 1);
+  if (ret < 0)return ret;
+
+  dev->streaming = false;
+
+  nxmutex_unlock(&dev->lock);
+
+  return OK;
 }
 
 /****************************************************************************
@@ -928,6 +1062,600 @@ static void icm_fifo_worker(FAR void *arg)
   /* Step 5: wake anyone blocked in read() or poll(). */
  
   poll_notify(dev->fds, ICM_NPOLLWAITERS, POLLIN);
+}
+
+/****************************************************************************
+ * Configuration helper functions (called from icm_ioctl)
+ ****************************************************************************/
+
+static int icm_set_gyro_fsr(FAR struct icm_dev_s *dev, uint16_t dps)
+{
+  uint8_t fsr_sel;
+  uint8_t reg;
+  int ret;
+
+  switch (dps)
+    {
+      case 2000: fsr_sel = 0; break;
+      case 1000: fsr_sel = 1; break;
+      case 500:  fsr_sel = 2; break;
+      case 250:  fsr_sel = 3; break;
+      case 125:  fsr_sel = 4; break;
+      default:   return -EINVAL;
+    }
+
+  nxmutex_lock(&dev->lock);
+
+  ret = __icm_read_reg(dev, GYRO_CONFIG0, &reg, 1);
+  if (ret < 0) goto out;
+
+  reg = (uint8_t)((reg & ~(0x07u << GYRO_CONFIG0__GYRO_FS_SEL__SHIFT)) |
+                  ((fsr_sel & 0x07u) << GYRO_CONFIG0__GYRO_FS_SEL__SHIFT));
+  ret = __icm_write_reg(dev, GYRO_CONFIG0, &reg, 1);
+
+out:
+  nxmutex_unlock(&dev->lock);
+  return ret;
+}
+
+static int icm_set_accel_fsr(FAR struct icm_dev_s *dev, uint16_t g)
+{
+  uint8_t fsr_sel;
+  uint8_t reg;
+  int ret;
+
+  switch (g)
+    {
+      case 16: fsr_sel = 0; break;
+      case 8:  fsr_sel = 1; break;
+      case 4:  fsr_sel = 2; break;
+      case 2:  fsr_sel = 3; break;
+      case 32: fsr_sel = 4; break;  /* ICM-40609-D only */
+      default: return -EINVAL;
+    }
+
+  nxmutex_lock(&dev->lock);
+
+  ret = __icm_read_reg(dev, ACCEL_CONFIG0, &reg, 1);
+  if (ret < 0) goto out;
+
+  reg = (uint8_t)((reg & ~(0x07u << ACCEL_CONFIG0__ACCEL_FS_SEL__SHIFT)) |
+                  ((fsr_sel & 0x07u) << ACCEL_CONFIG0__ACCEL_FS_SEL__SHIFT));
+  ret = __icm_write_reg(dev, ACCEL_CONFIG0, &reg, 1);
+  if (ret >= 0)
+    {
+      dev->afs_sel = fsr_sel;
+    }
+
+out:
+  nxmutex_unlock(&dev->lock);
+  return ret;
+}
+
+static int icm_set_odr(FAR struct icm_dev_s *dev, uint32_t hz)
+{
+  uint8_t odr_sel;
+  uint8_t greg, areg;
+  int ret;
+
+  switch (hz)
+    {
+      case 32000: odr_sel = 0x01; break;
+      case 16000: odr_sel = 0x02; break;
+      case 8000:  odr_sel = 0x03; break;
+      case 4000:  odr_sel = 0x04; break;
+      case 2000:  odr_sel = 0x05; break;
+      case 1000:  odr_sel = 0x06; break;
+      case 500:   odr_sel = 0x0f; break;
+      default:    return -EINVAL;
+    }
+
+  nxmutex_lock(&dev->lock);
+
+  ret = __icm_read_reg(dev, GYRO_CONFIG0, &greg, 1);
+  if (ret < 0) goto out;
+
+  greg = (uint8_t)((greg & ~(0x0fu << GYRO_CONFIG0__GYRO_ODR__SHIFT)) |
+                   ((odr_sel & 0x0fu) << GYRO_CONFIG0__GYRO_ODR__SHIFT));
+  ret = __icm_write_reg(dev, GYRO_CONFIG0, &greg, 1);
+  if (ret < 0) goto out;
+
+  ret = __icm_read_reg(dev, ACCEL_CONFIG0, &areg, 1);
+  if (ret < 0) goto out;
+
+  areg = (uint8_t)((areg & ~(0x0fu << ACCEL_CONFIG0__ACCEL_ODR__SHIFT)) |
+                   ((odr_sel & 0x0fu) << ACCEL_CONFIG0__ACCEL_ODR__SHIFT));
+  ret = __icm_write_reg(dev, ACCEL_CONFIG0, &areg, 1);
+  if (ret >= 0)
+    {
+      dev->gyro_odr    = odr_sel;
+      dev->accel_odr   = odr_sel;
+      dev->sample_rate = (float)hz;
+    }
+
+out:
+  nxmutex_unlock(&dev->lock);
+  return ret;
+}
+
+static int icm_set_watermark(FAR struct icm_dev_s *dev, uint16_t samples)
+{
+  int ret;
+  uint8_t wm[2];
+
+  wm[0] = (uint8_t)(samples & 0xff);
+  wm[1] = (uint8_t)((samples >> 8) & 0x0f);
+
+  nxmutex_lock(&dev->lock);
+  dev->watermark_samples = samples;
+  ret = __icm_write_reg(dev, FIFO_CONFIG2, wm, 2);
+  nxmutex_unlock(&dev->lock);
+
+  return ret;
+}
+
+static int icm_get_lost_packets(FAR struct icm_dev_s *dev, FAR uint32_t *count)
+{
+  int ret;
+  uint8_t buf[2];
+
+  nxmutex_lock(&dev->lock);
+  ret = __icm_read_reg(dev, FIFO_LOST_PKT0, buf, 2);
+  nxmutex_unlock(&dev->lock);
+
+  if (ret >= 0)
+    {
+      *count = (uint32_t)buf[0] | ((uint32_t)buf[1] << 8);
+    }
+
+  return ret;
+}
+
+/* icm_dnf_compute_coswz()
+ *
+ * Pure-math helper: converts a desired notch frequency (Hz) into the
+ * 9-bit NF_COSWZ register value and its SEL encoding bit.
+ *
+ * Algorithm from the ICM-40609-D datasheet:
+ *
+ *   coswz = cos(2π × f_hz / f_odr)
+ *
+ *   if |coswz| < 0.875:                          SEL = 0
+ *     NF_COSWZ = round(coswz × 256)
+ *
+ *   if  coswz ≥  0.875:                          SEL = 1
+ *     NF_COSWZ = round((1 − coswz) × 8 × 256)
+ *
+ *   if  coswz ≤ −0.875:                          SEL = 1
+ *     NF_COSWZ = round((1 + coswz) × 8 × 256)
+ *
+ * Outputs:
+ *   *lo  — bits[7:0] of the 9-bit result  → GYRO_CONFIG_STATIC{6,7,8}
+ *   *hi  — bit[8] of the 9-bit result     → GYRO_CONFIG_STATIC9 bits[2:0]
+ *   *sel — NF_COSWZ_SEL                   → GYRO_CONFIG_STATIC9 bits[5:3]
+ */
+
+static void icm_dnf_compute_coswz(uint32_t f_hz, float f_odr,
+                                  uint8_t *lo, uint8_t *hi, uint8_t *sel)
+{
+  float coswz = cosf(2.0f * (float)M_PI * (float)f_hz / f_odr);
+  uint16_t nf_coswz;
+
+  if (fabsf(coswz) < 0.875f)
+    {
+      nf_coswz = (uint16_t)lroundf(coswz * 256.0f);
+      *sel = 0;
+    }
+  else
+    {
+      *sel = 1;
+      if (coswz >= 0.875f)
+        {
+          nf_coswz = (uint16_t)lroundf((1.0f - coswz) * 8.0f * 256.0f);
+        }
+      else
+        {
+          nf_coswz = (uint16_t)lroundf((1.0f + coswz) * 8.0f * 256.0f);
+        }
+    }
+
+  *lo = (uint8_t)(nf_coswz & 0xff);
+  *hi = (uint8_t)((nf_coswz >> 8) & 0x01);
+}
+
+/* icm_set_gyro_dnf_freq()
+ *
+ * Convenience wrapper: applies the same notch frequency to all three
+ * gyro axes in a single burst (4 Bank-1 register writes).
+ */
+
+static int icm_set_gyro_dnf_freq(FAR struct icm_dev_s *dev, uint32_t hz)
+{
+  uint8_t lo[3], hi[3], sel[3];
+  uint8_t static9;
+  int ret;
+  int i;
+
+  for (i = 0; i < 3; i++)
+    {
+      icm_dnf_compute_coswz(hz, dev->sample_rate, &lo[i], &hi[i], &sel[i]);
+    }
+
+  /* Pack GYRO_CONFIG_STATIC9:
+   *   bits[2:0] = {Z,Y,X}_NF_COSWZ[8]
+   *   bits[5:3] = {Z,Y,X}_NF_COSWZ_SEL
+   */
+
+  static9 = (uint8_t)(hi[0]        | (hi[1]  << 1) | (hi[2]  << 2) |
+                      (sel[0] << 3) | (sel[1] << 4) | (sel[2] << 5));
+
+  nxmutex_lock(&dev->lock);
+
+  ret = __icm_set_bank(dev, 1);
+  if (ret < 0) goto out;
+
+  ret = __icm_write_reg(dev, GYRO_CONFIG_STATIC6, &lo[0], 1);
+  if (ret < 0) goto out;
+
+  ret = __icm_write_reg(dev, GYRO_CONFIG_STATIC7, &lo[1], 1);
+  if (ret < 0) goto out;
+
+  ret = __icm_write_reg(dev, GYRO_CONFIG_STATIC8, &lo[2], 1);
+  if (ret < 0) goto out;
+
+  ret = __icm_write_reg(dev, GYRO_CONFIG_STATIC9, &static9, 1);
+
+out:
+  __icm_set_bank(dev, 0);   /* always restore Bank 0 */
+  nxmutex_unlock(&dev->lock);
+  return ret;
+}
+
+static int icm_set_gyro_dnf_freq_x(FAR struct icm_dev_s *dev, uint32_t hz)
+{
+  uint8_t lo, hi, sel, static9;
+  int ret;
+
+  icm_dnf_compute_coswz(hz, dev->sample_rate, &lo, &hi, &sel);
+
+  nxmutex_lock(&dev->lock);
+
+  ret = __icm_set_bank(dev, 1);
+  if (ret < 0) goto out;
+
+  ret = __icm_write_reg(dev, GYRO_CONFIG_STATIC6, &lo, 1);
+  if (ret < 0) goto out;
+
+  /* RMW STATIC9: X occupies bit[0] (hi) and bit[3] (sel) */
+  ret = __icm_read_reg(dev, GYRO_CONFIG_STATIC9, &static9, 1);
+  if (ret < 0) goto out;
+
+  static9 = (uint8_t)((static9 & ~(BIT(0) | BIT(3))) | (hi << 0) | (sel << 3));
+  ret = __icm_write_reg(dev, GYRO_CONFIG_STATIC9, &static9, 1);
+
+out:
+  __icm_set_bank(dev, 0);
+  nxmutex_unlock(&dev->lock);
+  return ret;
+}
+
+static int icm_set_gyro_dnf_freq_y(FAR struct icm_dev_s *dev, uint32_t hz)
+{
+  uint8_t lo, hi, sel, static9;
+  int ret;
+
+  icm_dnf_compute_coswz(hz, dev->sample_rate, &lo, &hi, &sel);
+
+  nxmutex_lock(&dev->lock);
+
+  ret = __icm_set_bank(dev, 1);
+  if (ret < 0) goto out;
+
+  ret = __icm_write_reg(dev, GYRO_CONFIG_STATIC7, &lo, 1);
+  if (ret < 0) goto out;
+
+  /* RMW STATIC9: Y occupies bit[1] (hi) and bit[4] (sel) */
+  ret = __icm_read_reg(dev, GYRO_CONFIG_STATIC9, &static9, 1);
+  if (ret < 0) goto out;
+
+  static9 = (uint8_t)((static9 & ~(BIT(1) | BIT(4))) | (hi << 1) | (sel << 4));
+  ret = __icm_write_reg(dev, GYRO_CONFIG_STATIC9, &static9, 1);
+
+out:
+  __icm_set_bank(dev, 0);
+  nxmutex_unlock(&dev->lock);
+  return ret;
+}
+
+static int icm_set_gyro_dnf_freq_z(FAR struct icm_dev_s *dev, uint32_t hz)
+{
+  uint8_t lo, hi, sel, static9;
+  int ret;
+
+  icm_dnf_compute_coswz(hz, dev->sample_rate, &lo, &hi, &sel);
+
+  nxmutex_lock(&dev->lock);
+
+  ret = __icm_set_bank(dev, 1);
+  if (ret < 0) goto out;
+
+  ret = __icm_write_reg(dev, GYRO_CONFIG_STATIC8, &lo, 1);
+  if (ret < 0) goto out;
+
+  /* RMW STATIC9: Z occupies bit[2] (hi) and bit[5] (sel) */
+  ret = __icm_read_reg(dev, GYRO_CONFIG_STATIC9, &static9, 1);
+  if (ret < 0) goto out;
+
+  static9 = (uint8_t)((static9 & ~(BIT(2) | BIT(5))) | (hi << 2) | (sel << 5));
+  ret = __icm_write_reg(dev, GYRO_CONFIG_STATIC9, &static9, 1);
+
+out:
+  __icm_set_bank(dev, 0);
+  nxmutex_unlock(&dev->lock);
+  return ret;
+}
+
+static int icm_set_gyro_dnf_bandwidth(FAR struct icm_dev_s *dev, uint32_t hz)
+{
+  uint8_t bw_sel;
+  uint8_t reg;
+  int ret;
+
+  switch (hz)
+    {
+      case 1449: bw_sel = 0; break;
+      case 680:  bw_sel = 1; break;
+      case 329:  bw_sel = 2; break;
+      case 162:  bw_sel = 3; break;
+      case 80:   bw_sel = 4; break;
+      case 40:   bw_sel = 5; break;
+      case 20:   bw_sel = 6; break;
+      case 10:   bw_sel = 7; break;
+      default:   return -EINVAL;
+    }
+
+  nxmutex_lock(&dev->lock);
+
+  ret = __icm_set_bank(dev, 1);
+  if (ret < 0) goto out;
+
+  ret = __icm_read_reg(dev, GYRO_CONFIG_STATIC0, &reg, 1);
+  if (ret < 0) goto out;
+
+  reg = (uint8_t)((reg & ~(0x07u << GYRO_CONFIG_STATIC0__GYRO_NF_BW_SEL__SHIFT)) |
+                  ((bw_sel & 0x07u) << GYRO_CONFIG_STATIC0__GYRO_NF_BW_SEL__SHIFT));
+  ret = __icm_write_reg(dev, GYRO_CONFIG_STATIC0, &reg, 1);
+
+out:
+  __icm_set_bank(dev, 0);
+  nxmutex_unlock(&dev->lock);
+  return ret;
+}
+
+static int icm_set_gyro_offset(FAR struct icm_dev_s *dev,
+                               FAR const struct icm40609d_offset_s *off)
+{
+  uint8_t buf[4];
+  uint8_t user4;
+  int ret;
+  uint16_t gx = (uint16_t)(off->x & 0x0FFF);
+  uint16_t gy = (uint16_t)(off->y & 0x0FFF);
+  uint16_t gz = (uint16_t)(off->z & 0x0FFF);
+
+  buf[0] = (uint8_t)(gx & 0xFF);                              /* OFFSET_USER0: GX[7:0]              */
+  buf[1] = (uint8_t)(((gy >> 8) << 4) | ((gx >> 8) & 0x0F)); /* OFFSET_USER1: GY[11:8] | GX[11:8]  */
+  buf[2] = (uint8_t)(gy & 0xFF);                              /* OFFSET_USER2: GY[7:0]              */
+  buf[3] = (uint8_t)(gz & 0xFF);                              /* OFFSET_USER3: GZ[7:0]              */
+
+  nxmutex_lock(&dev->lock);
+
+  ret = __icm_set_bank(dev, 4);
+  if (ret < 0) goto out;
+
+  ret = __icm_write_reg(dev, OFFSET_USER0, buf, 4);
+  if (ret < 0) goto out;
+
+  /* OFFSET_USER4 upper nibble = AX[11:8], lower nibble = GZ[11:8] — RMW to preserve accel X. */
+  ret = __icm_read_reg(dev, OFFSET_USER4, &user4, 1);
+  if (ret < 0) goto out;
+
+  user4 = (uint8_t)((user4 & 0xF0) | ((gz >> 8) & 0x0F));
+  ret = __icm_write_reg(dev, OFFSET_USER4, &user4, 1);
+
+out:
+  __icm_set_bank(dev, 0);
+  nxmutex_unlock(&dev->lock);
+  return ret;
+}
+
+static int icm_set_accel_offset(FAR struct icm_dev_s *dev,
+                                FAR const struct icm40609d_offset_s *off)
+{
+  uint8_t buf[4];
+  uint8_t user4;
+  int ret;
+  uint16_t ax = (uint16_t)(off->x & 0x0FFF);
+  uint16_t ay = (uint16_t)(off->y & 0x0FFF);
+  uint16_t az = (uint16_t)(off->z & 0x0FFF);
+
+  buf[0] = (uint8_t)(ax & 0xFF);                              /* OFFSET_USER5: AX[7:0]              */
+  buf[1] = (uint8_t)(ay & 0xFF);                              /* OFFSET_USER6: AY[7:0]              */
+  buf[2] = (uint8_t)(((az >> 8) << 4) | ((ay >> 8) & 0x0F)); /* OFFSET_USER7: AZ[11:8] | AY[11:8]  */
+  buf[3] = (uint8_t)(az & 0xFF);                              /* OFFSET_USER8: AZ[7:0]              */
+
+  nxmutex_lock(&dev->lock);
+
+  ret = __icm_set_bank(dev, 4);
+  if (ret < 0) goto out;
+
+  /* OFFSET_USER4 upper nibble = AX[11:8], lower nibble = GZ[11:8] — RMW to preserve gyro Z. */
+  ret = __icm_read_reg(dev, OFFSET_USER4, &user4, 1);
+  if (ret < 0) goto out;
+
+  user4 = (uint8_t)((user4 & 0x0F) | (((ax >> 8) & 0x0F) << 4));
+  ret = __icm_write_reg(dev, OFFSET_USER4, &user4, 1);
+  if (ret < 0) goto out;
+
+  ret = __icm_write_reg(dev, OFFSET_USER5, buf, 4);
+
+out:
+  __icm_set_bank(dev, 0);
+  nxmutex_unlock(&dev->lock);
+  return ret;
+}
+
+static int icm_set_gyro_dnf_en(FAR struct icm_dev_s *dev, bool en)
+{
+  uint8_t reg;
+  int ret;
+
+  nxmutex_lock(&dev->lock);
+
+  ret = __icm_set_bank(dev, 1);
+  if (ret < 0) goto out;
+
+  ret = __icm_read_reg(dev, GYRO_CONFIG_STATIC0, &reg, 1);
+  if (ret < 0) goto out;
+
+  if (en)
+    reg &= ~GYRO_CONFIG_STATIC0__GYRO_NF_DIS;  /* clear DIS bit → filter on  */
+  else
+    reg |= GYRO_CONFIG_STATIC0__GYRO_NF_DIS;   /* set   DIS bit → filter off */
+
+  ret = __icm_write_reg(dev, GYRO_CONFIG_STATIC0, &reg, 1);
+  if (ret >= 0)
+    {
+      dev->dnf_active = en;
+    }
+
+out:
+  __icm_set_bank(dev, 0);
+  nxmutex_unlock(&dev->lock);
+  return ret;
+}
+
+static int icm_set_accel_aaf_en(FAR struct icm_dev_s *dev, bool en)
+{
+  uint8_t reg;
+  int ret;
+
+  nxmutex_lock(&dev->lock);
+
+  ret = __icm_set_bank(dev, 1);
+  if (ret < 0) goto out;
+
+  ret = __icm_read_reg(dev, ACCEL_CONFIG_STATIC2, &reg, 1);
+  if (ret < 0) goto out;
+
+  if (en)
+    reg &= ~ACCEL_CONFIG_STATIC2__ACCEL_AAF_DIS;  /* clear DIS bit → filter on  */
+  else
+    reg |= ACCEL_CONFIG_STATIC2__ACCEL_AAF_DIS;   /* set   DIS bit → filter off */
+
+  ret = __icm_write_reg(dev, ACCEL_CONFIG_STATIC2, &reg, 1);
+  if (ret >= 0)
+    {
+      dev->aaf_active = en;
+    }
+
+out:
+  __icm_set_bank(dev, 0);
+  nxmutex_unlock(&dev->lock);
+  return ret;
+}
+
+static int icm_set_gyro_ui_filt_ord(FAR struct icm_dev_s *dev, uint8_t order)
+{
+  uint8_t ord_sel;
+  uint8_t reg;
+  int ret;
+
+  switch (order)
+    {
+      case 1: ord_sel = 0; break;
+      case 2: ord_sel = 1; break;
+      case 3: ord_sel = 2; break;
+      default: return -EINVAL;
+    }
+
+  nxmutex_lock(&dev->lock);
+
+  ret = __icm_read_reg(dev, GYRO_CONFIG1, &reg, 1);
+  if (ret < 0) goto out;
+
+  reg = (uint8_t)((reg & ~(0x03u << GYRO_CONFIG1__GYRO_UI_FILT_ORD__SHIFT)) |
+                  ((ord_sel & 0x03u) << GYRO_CONFIG1__GYRO_UI_FILT_ORD__SHIFT));
+  ret = __icm_write_reg(dev, GYRO_CONFIG1, &reg, 1);
+
+out:
+  nxmutex_unlock(&dev->lock);
+  return ret;
+}
+
+static int icm_set_accel_ui_filt_ord(FAR struct icm_dev_s *dev, uint8_t order)
+{
+  uint8_t ord_sel;
+  uint8_t reg;
+  int ret;
+
+  switch (order)
+    {
+      case 1: ord_sel = 0; break;
+      case 2: ord_sel = 1; break;
+      case 3: ord_sel = 2; break;
+      default: return -EINVAL;
+    }
+
+  nxmutex_lock(&dev->lock);
+
+  ret = __icm_read_reg(dev, ACCEL_CONFIG1, &reg, 1);
+  if (ret < 0) goto out;
+
+  reg = (uint8_t)((reg & ~(0x03u << ACCEL_CONFIG1__ACCEL_UI_FILT_ORD__SHIFT)) |
+                  ((ord_sel & 0x03u) << ACCEL_CONFIG1__ACCEL_UI_FILT_ORD__SHIFT));
+  ret = __icm_write_reg(dev, ACCEL_CONFIG1, &reg, 1);
+
+out:
+  nxmutex_unlock(&dev->lock);
+  return ret;
+}
+
+static int icm_set_gyro_ui_filt_bw(FAR struct icm_dev_s *dev, uint8_t bw)
+{
+  uint8_t reg;
+  int ret;
+
+  nxmutex_lock(&dev->lock);
+
+  ret = __icm_read_reg(dev, GYRO_ACCEL_CONFIG0, &reg, 1);
+  if (ret < 0) goto out;
+
+  reg = (uint8_t)((reg & ~(0x0fu << GYRO_ACCEL_CONFIG0__GYRO_UI_FILT_BW__SHIFT)) |
+                  ((bw & 0x0fu) << GYRO_ACCEL_CONFIG0__GYRO_UI_FILT_BW__SHIFT));
+  ret = __icm_write_reg(dev, GYRO_ACCEL_CONFIG0, &reg, 1);
+
+out:
+  nxmutex_unlock(&dev->lock);
+  return ret;
+}
+
+static int icm_set_accel_ui_filt_bw(FAR struct icm_dev_s *dev, uint8_t bw)
+{
+  uint8_t reg;
+  int ret;
+
+  nxmutex_lock(&dev->lock);
+
+  ret = __icm_read_reg(dev, GYRO_ACCEL_CONFIG0, &reg, 1);
+  if (ret < 0) goto out;
+
+  reg = (uint8_t)((reg & ~(0x0fu << GYRO_ACCEL_CONFIG0__ACCEL_UI_FILT_BW__SHIFT)) |
+                  ((bw & 0x0fu) << GYRO_ACCEL_CONFIG0__ACCEL_UI_FILT_BW__SHIFT));
+  ret = __icm_write_reg(dev, GYRO_ACCEL_CONFIG0, &reg, 1);
+
+out:
+  nxmutex_unlock(&dev->lock);
+  return ret;
 }
 
 /****************************************************************************
@@ -1102,39 +1830,100 @@ static int icm_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 switch (cmd)
     {
       /* Set gyro full-scale range: ±125, ±250, ±500, ±1000, ±2000 dps */
-      case SNIOC_SET_GYRO_FSR:
+      case ICM40609D_IOC_SET_GYRO_FSR:
         ret = icm_set_gyro_fsr(dev, (uint16_t)arg);
         if (ret < 0)
           {
-            snerr("ERROR: SNIOC_SET_GYRO_FSR fails. Returns: %d\n", ret);
+            snerr("ERROR: ICM40609D_IOC_SET_GYRO_FSR fails. Returns: %d\n", ret);
           }
         break;
 
       /* Set accel full-scale range: ±4, ±8, ±16, ±32 g */
-      case SNIOC_SET_ACCEL_FSR:
+      case ICM40609D_IOC_SET_ACCEL_FSR:
         ret = icm_set_accel_fsr(dev, (uint16_t)arg);
         break;
 
       /* Set ODR: 32000, 16000, 8000, 4000... Hz */
-      case SNIOC_SET_ODR:
+      case ICM40609D_IOC_SET_ODR:
         ret = icm_set_odr(dev, (uint32_t)arg);
+        break;
+      
+      /* Set the notch filter frequency for each Gyro axis */
+      case ICM40609D_IOC_SET_GYRO_DNF_FREQ:
+        ret = icm_set_gyro_dnf_freq(dev, (uint32_t)arg);
+        break;
+
+      /* Set the notch filter bandwidth for all Gyro axis
+         GYRO_NF_BW_SEL: 1449, 680, 329, 162, 80, 40, 20, 10 Hz*/
+      case ICM40609D_IOC_SET_GYRO_DNF_BW:
+        ret = icm_set_gyro_dnf_bandwidth(dev, (uint32_t)arg);
         break;
 
       /* Tune FIFO watermark without restarting — affects IRQ rate/latency */
-      case SNIOC_SET_WATERMARK:
+      case ICM40609D_IOC_SET_WATERMARK:
         ret = icm_set_watermark(dev, (uint16_t)arg);
         break;
 
       /* Read and clear the FIFO overflow counter from FIFO_LOST_PKT0/1 */
-      case SNIOC_GET_LOST_PKTS:
+      case ICM40609D_IOC_GET_LOST_PKTS:
         ret = icm_get_lost_packets(dev, (FAR uint32_t *)arg);
         break;
 
       /* Flush the ring buffer — discard buffered samples */
-      case SNIOC_RESET_FIFO:
+      case ICM40609D_IOC_RESET_FIFO:
         nxsem_wait_uninterruptible(&dev->rb_sem);
         circbuf_reset(&dev->fifo_rb);
         nxsem_post(&dev->rb_sem);
+        break;
+
+      /* Set gyro/accel offset (all three axes at once) */
+      case ICM40609D_IOC_SET_GYRO_OFFSET:
+        ret = icm_set_gyro_offset(dev, (FAR const struct icm40609d_offset_s *)arg);
+        break;
+
+      case ICM40609D_IOC_SET_ACCEL_OFFSET:
+        ret = icm_set_accel_offset(dev, (FAR const struct icm40609d_offset_s *)arg);
+        break;
+
+      /* Enable/disable gyro digital notch filter */
+      case ICM40609D_IOC_SET_GYRO_DNF_EN:
+        ret = icm_set_gyro_dnf_en(dev, (bool)arg);
+        break;
+
+      /* Enable/disable accel anti-aliasing filter */
+      case ICM40609D_IOC_SET_ACCEL_AAF_EN:
+        ret = icm_set_accel_aaf_en(dev, (bool)arg);
+        break;
+
+      /* Per-axis gyro notch filter center frequency */
+      case ICM40609D_IOC_SET_GYRO_DNF_FREQ_X:
+        ret = icm_set_gyro_dnf_freq_x(dev, (uint32_t)arg);
+        break;
+
+      case ICM40609D_IOC_SET_GYRO_DNF_FREQ_Y:
+        ret = icm_set_gyro_dnf_freq_y(dev, (uint32_t)arg);
+        break;
+
+      case ICM40609D_IOC_SET_GYRO_DNF_FREQ_Z:
+        ret = icm_set_gyro_dnf_freq_z(dev, (uint32_t)arg);
+        break;
+
+      /* Gyro/accel UI filter order */
+      case ICM40609D_IOC_SET_GYRO_UI_FILT_ORD:
+        ret = icm_set_gyro_ui_filt_ord(dev, (uint8_t)arg);
+        break;
+
+      case ICM40609D_IOC_SET_ACCEL_UI_FILT_ORD:
+        ret = icm_set_accel_ui_filt_ord(dev, (uint8_t)arg);
+        break;
+
+      /* Gyro/accel UI filter bandwidth */
+      case ICM40609D_IOC_SET_GYRO_UI_FILT_BW:
+        ret = icm_set_gyro_ui_filt_bw(dev, (uint8_t)arg);
+        break;
+
+      case ICM40609D_IOC_SET_ACCEL_UI_FILT_BW:
+        ret = icm_set_accel_ui_filt_bw(dev, (uint8_t)arg);
         break;
 
       default:
