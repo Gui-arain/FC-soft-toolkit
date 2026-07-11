@@ -22,7 +22,6 @@
 #include <nuttx/spi/spi.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/sensors/icm40609d-fifo.h>
-#include <nuttx/sensors/ioctl.h>
 
 #include <nuttx/wqueue.h>     /* work_queue() bottom half */
 #include <nuttx/circbuf.h>    /* ring buffer */
@@ -473,13 +472,13 @@ enum icm_regaddr_e
  * since the consumer shouldn't have to know the wire format.
  ****************************************************************************/
 
-struct icm_fifo_sample_s
+begin_packed_struct struct icm_fifo_sample_s
 {
   int16_t  accel_x, accel_y, accel_z;
   int16_t  gyro_x, gyro_y, gyro_z;
   int8_t   temp;          /* FIFO temp is 8-bit; see datasheet conversion */
   uint16_t tmst;           /* raw ODR timestamp counter from FIFO */
-};
+} end_packed_struct;
 
 /* Used by the driver to manage the device */
 
@@ -491,7 +490,8 @@ struct icm_dev_s
   /* --- IMU configurations --- */
   uint8_t gyro_odr;           /* gyro output data rate selector */
   uint8_t accel_odr;          /* accel output data rate selector */
-  uint8_t afs_sel;            /* full scale range of the accelerometer */
+  uint8_t acc_fs_sel;            /* full scale range of the accelerometer */
+  uint8_t gyro_fs_sel;            /* full scale range of the gyro */
   uint8_t dnf_config;         /* digital notch filter configuration */
   uint8_t daaf_config;        /* digital anti aliasing filter configuration */
   bool dnf_active;

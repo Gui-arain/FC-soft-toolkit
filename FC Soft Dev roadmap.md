@@ -11,5 +11,8 @@ Tasks:
 - [ ] MatLab/python attitude data visualisation
 - [ ] PID implementation
 - [ ] cascade control structure
-- [ ] read Mag data
+- [x] read Mag data
 - [ ] Read Barometer data
+- [ ] PX4 port to the board
+- [ ] NuttX board port
+- [ ] 

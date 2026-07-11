@@ -180,3 +180,9 @@
 ---
 
 - pointer casting: the process of changing the data type of a pointer without changing the underlying memory address it references. It instructs the compiler to interpret the raw bits at that memory location as a different data type
+
+- **Zero-order-hold (ZOH) interpolation** is ==a mathematical method and practical reconstruction technique used in digital signal processing to convert a discrete-time signal (a series of samples) back into a continuous-time signal==. It holds the value of the most recent sample constant until the next sample arrives, producing a distinct staircase-like waveform
+
+- **4-fold oversampling** (or 4x) refers to ==a technique in digital signal processing (DSP) and machine learning where a dataset or signal is evaluated, simulated, or sampled at **four times** the base rate==. Depending on the field, this technique is primarily used to prevent signal distortion or balance imbalanced datasets.
+
+- Madgwick filter:

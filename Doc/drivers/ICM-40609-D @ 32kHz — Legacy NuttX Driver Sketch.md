@@ -253,3 +253,21 @@ icm_fifo_worker() runs
                                   │
                                poll(fd, ...)  ← blocks again
 ```
+
+### Calling the Driver from a user App
+
+```cpp
+/* Userspace application */ 
+struct pollfd pfd; 
+pfd.fd = open("/dev/imu0", O_RDONLY | O_NONBLOCK); 
+pfd.events = POLLIN; /* I want to know when data is readable */ 
+while (1) 
+{ 
+	poll(&pfd, 1, -1);  /* block indefinitely until IMU has data */ 
+						/* CPU does NOTHING here — task is suspended */ 
+	if (pfd.revents & POLLIN) 
+	{ 
+	read(pfd.fd, samples, sizeof(samples)); /* process samples */ 
+	} 
+}
+```
