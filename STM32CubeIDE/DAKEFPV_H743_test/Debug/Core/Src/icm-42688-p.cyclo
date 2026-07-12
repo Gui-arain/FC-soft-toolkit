@@ -1,0 +1,5 @@
+../Core/Src/icm-42688-p.c:23:6:icm_write	1
+../Core/Src/icm-42688-p.c:31:9:icm_read	1
+../Core/Src/icm-42688-p.c:40:9:icm_read_who_am_i	1
+../Core/Src/icm-42688-p.c:44:12:icm_init	2
+../Core/Src/icm-42688-p.c:73:12:icm_read_data	2

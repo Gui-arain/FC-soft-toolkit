@@ -97,12 +97,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Doc/Sensors Settings 📐.md",
+                "file": "Doc/NuttX setup 🥜.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "Sensors Settings 📐"
+              "title": "NuttX setup 🥜"
             }
           }
         ],
@@ -270,19 +270,21 @@
   },
   "active": "6dbe9dc09ca20c3d",
   "lastOpenFiles": [
-    "Doc/STM32 Settings ⚙️.md",
     "STM32CubeIDE/DAKEFPV_H743_test/Debug/DAKEFPV_H743_test.elf",
     "STM32CubeIDE/DAKEFPV_H743_test/Debug/Core/Src/main.o",
+    "STM32CubeIDE/DAKEFPV_H743_test/Debug/Core/Src/icm-42688-p.o",
+    "STM32CubeIDE/DAKEFPV_H743_test/Debug/Core/Src/icm-42688-p.cyclo",
     "STM32CubeIDE/DAKEFPV_H743_test/Debug/Core/Src/main.cyclo",
-    "STM32CubeIDE/DAKEFPV_H743_test/Debug/DAKEFPV_H743_test.list",
-    "STM32CubeIDE/DAKEFPV_H743_test/Debug/DAKEFPV_H743_test.map",
-    "STM32CubeIDE/DAKEFPV_H743_test/Debug/Core/Src/system_stm32h7xx.o",
-    "STM32CubeIDE/DAKEFPV_H743_test/Debug/Core/Src/system_stm32h7xx.d",
-    "STM32CubeIDE/DAKEFPV_H743_test/Debug/Core/Src/stm32h7xx_it.o",
-    "STM32CubeIDE/DAKEFPV_H743_test/Debug/Core/Src/stm32h7xx_it.d",
-    "STM32CubeIDE/DAKEFPV_H743_test/Debug/Core/Src/stm32h7xx_hal_msp.o",
-    "Doc/Sensors Settings 📐.md",
+    "STM32CubeIDE/DAKEFPV_H743_test/Debug/Core/Src/icm-42688-p.su",
+    "STM32CubeIDE/DAKEFPV_H743_test/Debug/Core/Src/main.su",
+    "STM32CubeIDE/DAKEFPV_H743_test/Debug/Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_ll_usb.o",
+    "STM32CubeIDE/DAKEFPV_H743_test/Debug/Core/Src/system_stm32h7xx.su",
+    "STM32CubeIDE/DAKEFPV_H743_test/Debug/Core/Src/stm32h7xx_hal_msp.cyclo",
+    "STM32CubeIDE/DAKEFPV_H743_test/Debug/Core/Src/stm32h7xx_hal_msp.su",
+    "Doc/Setup MacOS 🍎.md",
     "Doc/NuttX setup 🥜.md",
+    "Doc/STM32 Settings ⚙️.md",
+    "Doc/Sensors Settings 📐.md",
     "Doc/NuttX Build Config.md",
     "Doc/NuttX Board Port.md",
     "Doc/JLink Cheatsheet ⛓️.md",
@@ -293,7 +295,6 @@
     "Doc/drivers/ICM-40609-D Driver.md",
     "Doc/helpers/C++ Cheat Sheet.md",
     "Doc/FC First Bringup 🌱.md",
-    "Doc/Setup MacOS 🍎.md",
     "Doc/drivers/IMU readings.md",
     "Doc/helpers/C++ cheat sheet 🛠️.md",
     "Doc/imgs/Clock_config_HSE.png",
