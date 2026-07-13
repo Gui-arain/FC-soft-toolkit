@@ -97,12 +97,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Doc/STM32 Settings ⚙️.md",
+                "file": "Doc/NuttX Build Config.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "STM32 Settings ⚙️"
+              "title": "NuttX Build Config"
             }
           }
         ],
@@ -270,22 +270,22 @@
   },
   "active": "6dbe9dc09ca20c3d",
   "lastOpenFiles": [
-    "resources/FC-boards/DAKEFPV_H743/betaflight_config.h",
+    "nuttxspace/nuttx/nuttx.manifest",
+    "nuttxspace/nuttx/nuttx.bin",
+    "nuttxspace/nuttx/nuttx.hex",
+    "nuttxspace/nuttx/System.map",
+    "nuttxspace/nuttx/nuttx",
+    "nuttxspace/nuttx/nuttx.map",
+    "nuttxspace/boards/arm/stm32h7/dakefpv-h743/src/libboard.a",
+    "nuttxspace/boards/arm/stm32h7/dakefpv-h743/src/stm32_usb.o",
+    "nuttxspace/boards/arm/stm32h7/dakefpv-h743/src/stm32_boot.o",
+    "nuttxspace/boards/arm/stm32h7/dakefpv-h743/src/stm32_spi.o",
+    "nuttxspace/boards/arm/stm32h7/dakefpv-h743/src/stm32_userleds.o",
+    "Doc/NuttX setup 🥜.md",
+    "Doc/STM32 Settings ⚙️.md",
     "Doc/Sensors Settings 📐.md",
     "Doc/NuttX Board Port.md",
-    "Doc/NuttX setup 🥜.md",
-    "nuttxspace/boards/arm/stm32h7/dakefpv-h743/src/dakefpv-h743.h",
-    "nuttxspace/boards/arm/stm32h7/dakefpv-h743/Kconfig",
-    "nuttxspace/boards/arm/stm32h7/dakefpv-h743/CMakeLists.txt",
-    "nuttxspace/boards/arm/stm32h7/dakefpv-h743/src/weact-stm32h743.h",
-    "nuttxspace/boards/arm/stm32h7/dakefpv-h743/src/stm32_usb.c",
-    "nuttxspace/boards/arm/stm32h7/dakefpv-h743/src/stm32_spi.c",
-    "nuttxspace/boards/arm/stm32h7/dakefpv-h743/src/stm32_sdmmc.c",
-    "nuttxspace/boards/arm/stm32h7/dakefpv-h743/src/stm32_lcd_st7735.c",
-    "nuttxspace/boards/arm/stm32h7/dakefpv-h743/src/stm32_ioctl.c",
-    "nuttxspace/boards/arm/stm32h7/dakefpv-h743/src/stm32_dma_alloc.c",
     "Doc/Setup MacOS 🍎.md",
-    "Doc/STM32 Settings ⚙️.md",
     "Doc/NuttX Build Config.md",
     "Doc/JLink Cheatsheet ⛓️.md",
     "Doc/drivers/ICM-40609-D @ 32kHz — Legacy NuttX Driver Sketch.md",

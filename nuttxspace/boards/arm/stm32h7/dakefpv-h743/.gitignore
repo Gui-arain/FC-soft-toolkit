@@ -1,0 +1,7 @@
+# NuttX build artifacts
+src/*.o
+src/*.a
+src/.depend
+src/Make.dep
+scripts/*.tmp
+scripts/Make.defs

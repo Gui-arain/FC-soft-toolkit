@@ -101,12 +101,12 @@
 
 /* LED
  *
- * The WeAct STM32H743 board has only one Blue LED (E3) controlled by GPIO.
- * LED E3: connected to PC3
+ * The dakefpv-h743 board has one user LED controlled by GPIO.
+ * LED: connected to PD10
  */
 
 #define GPIO_LD1       (GPIO_OUTPUT | GPIO_PUSHPULL | GPIO_SPEED_50MHz | \
-                        GPIO_OUTPUT_CLEAR | GPIO_PORTE | GPIO_PIN3)
+                        GPIO_OUTPUT_CLEAR | GPIO_PORTD | GPIO_PIN10)
 
 /* BUTTONS
  *
