@@ -264,7 +264,7 @@
 
 /* SDMMC 1 2 clock source, use STM32_PLL1Q_FREQUENCY  */
 
-#define STM32_RCC_D1CCIPR_SDMMCSEL  RCC_D1CCIPR_SDMMC_PLL1
+// #define STM32_RCC_D1CCIPR_SDMMCSEL  RCC_D1CCIPR_SDMMC_PLL1
 
 /* FMC clock source, use STM32_PLL1Q_FREQUENCY  */
 #define BOARD_FMC_CLK               RCC_D1CCIPR_FMCSEL_HCLK
@@ -290,28 +290,6 @@
  */
 
 #define BOARD_FLASH_WAITSTATES 4
-
-/* SDMMC definitions ********************************************************/
-
-/* Init 400 kHz, PLL1Q/(2*300) = 240 MHz / (2*300) = 400 Khz */
-
-#define STM32_SDMMC_INIT_CLKDIV     (300 << STM32_SDMMC_CLKCR_CLKDIV_SHIFT)
-
-/* Just set these to 24 MHz for now,
- * PLL1Q/(2*5) = 240 MHz / (2*5) = 24 MHz
- */
-
-#define STM32_SDMMC_MMCXFR_CLKDIV   (5 << STM32_SDMMC_CLKCR_CLKDIV_SHIFT)
-#define STM32_SDMMC_SDXFR_CLKDIV    (5 << STM32_SDMMC_CLKCR_CLKDIV_SHIFT)
-
-#define STM32_SDMMC_CLKCR_EDGE      STM32_SDMMC_CLKCR_NEGEDGE
-
-#define GPIO_SDMMC1_CK   (GPIO_SDMMC1_CK_0|GPIO_SPEED_100MHz)  /* PC12 */
-#define GPIO_SDMMC1_CMD  (GPIO_SDMMC1_CMD_0|GPIO_SPEED_100MHz) /* PD2 */
-#define GPIO_SDMMC1_D0   (GPIO_SDMMC1_D0_0|GPIO_SPEED_100MHz)  /* PC8 */
-#define GPIO_SDMMC1_D1   (GPIO_SDMMC1_D1_0|GPIO_SPEED_100MHz)  /* PC9 */
-#define GPIO_SDMMC1_D2   (GPIO_SDMMC1_D2_0|GPIO_SPEED_100MHz)  /* PC10 */
-#define GPIO_SDMMC1_D3   (GPIO_SDMMC1_D3_0|GPIO_SPEED_100MHz)  /* PC11 */
 
 /* LED definitions **********************************************************/
 
@@ -367,10 +345,9 @@
 #define GPIO_I2C2_SCL (GPIO_I2C2_SCL_1 | GPIO_SPEED_50MHz)  /* PB10 */
 #define GPIO_I2C2_SDA (GPIO_I2C2_SDA_1 | GPIO_SPEED_50MHz)  /* PB11 */
 
-/* USART1 (Serial Console) */
-
-#define GPIO_USART1_RX   (GPIO_USART1_RX_1 | GPIO_SPEED_100MHz)  /* PB15 */
-#define GPIO_USART1_TX   (GPIO_USART1_TX_1 | GPIO_SPEED_100MHz)  /* PB14 */
+/* USART1 (on the UART1 header for GPS1) */
+#define GPIO_USART1_RX (GPIO_USART1_RX_2 | GPIO_SPEED_100MHz)  /* PA10 */
+#define GPIO_USART1_TX (GPIO_USART1_TX_2 | GPIO_SPEED_100MHz)  /* PA9 */
 
 /* SPI1 IMU1 ICM_42688-P  */
 
@@ -381,14 +358,15 @@
 /* SPI4 IMU2 ICM_42688-P */
 
 #define GPIO_SPI4_SCK    (GPIO_SPI4_SCK_1  | GPIO_SPEED_50MHz) /* PE12 */
-#define GPIO_SPI4_MISO   (GPIO_SPI4_MISO_1 | GPIO_SPEED_50MHz) /* PE14 */
+#define GPIO_SPI4_MISO   (GPIO_SPI4_MISO_1 | GPIO_SPEED_50MHz) /* PE13 */
 #define GPIO_SPI4_MOSI   (GPIO_SPI4_MOSI_1 | GPIO_SPEED_50MHz) /* PE14 */
 
 /* OTGFS */
 
 #define GPIO_OTGFS_DM  (GPIO_OTGFS_DM_0|GPIO_SPEED_100MHz) /* PA11 */
 #define GPIO_OTGFS_DP  (GPIO_OTGFS_DP_0|GPIO_SPEED_100MHz) /* PA12 */
-#define GPIO_OTGFS_ID  (GPIO_OTGFS_ID_0|GPIO_SPEED_100MHz) /* PA10 */
+/* We don't have the ID pin: disabled in Kconfig*/
+// #define GPIO_OTGFS_ID  (GPIO_OTGFS_ID_0|GPIO_SPEED_100MHz) /* PA10 */
 
 /****************************************************************************
  * Public Data
