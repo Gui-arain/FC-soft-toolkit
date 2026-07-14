@@ -1,0 +1,10 @@
+# Kconfig — extension point for NuttX's per-arch "board drivers" mechanism.
+#
+# tools/Config.mk sets BOARD_DRIVERS_DIR to boards/<arch>/<chip>/drivers
+# when it exists (falling back to drivers/dummy otherwise), and "make
+# context" symlinks it to nuttx/drivers/platform, which nuttx/drivers/Kconfig
+# unconditionally sources as "$BINDIR/drivers/platform/Kconfig". This file
+# existing is what makes that resolve to our out-of-tree drivers instead of
+# the empty dummy placeholder.
+
+source "$BINDIR/../drivers/Kconfig"

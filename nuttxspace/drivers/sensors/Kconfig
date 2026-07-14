@@ -17,3 +17,18 @@ config SENSORS_ICM40609D
 		  Gyro:  ±2000 dps,  1 kHz ODR
 		  Accel: ±16 g,      1 kHz ODR
 		  Mode:  low-noise, temperature sensor on
+
+# ICM-42688-P IMU (6-axis, SPI)
+
+config SENSORS_ICM42688P
+	bool "InvenSense ICM-42688-P IMU (accel + gyro)"
+	default n
+	depends on SPI
+	---help---
+		Enable the legacy-style NuttX driver for the InvenSense ICM-42688-P
+		6-axis IMU (accelerometer + gyroscope).
+
+		Default configuration after reset:
+		  Gyro:  ±2000 dps,  1 kHz ODR
+		  Accel: ±16 g,      1 kHz ODR
+		  Mode:  low-noise, temperature sensor on

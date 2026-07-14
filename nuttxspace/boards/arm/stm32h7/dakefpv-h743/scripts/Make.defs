@@ -48,3 +48,6 @@ CXXELFFLAGS = $(CXXFLAGS) -mlong-calls # --target1-abs
 
 LDELFFLAGS = -r -e main
 LDELFFLAGS += -T $(call CONVERT_PATH,$(TOPDIR)/binfmt/elf/gnu-elf.ld)
+
+# Out-of-tree driver headers
+CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)/../drivers/include

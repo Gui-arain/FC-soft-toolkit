@@ -1,0 +1,12 @@
+############################################################################
+# Make.defs — extension point for NuttX's per-arch "board drivers" mechanism.
+#
+# Reached as nuttx/drivers/platform/Make.defs: nuttx/drivers/Makefile does
+# `-include platform/Make.defs` when CONFIG_SPECIFIC_DRIVERS=y, and
+# drivers/platform is symlinked here by tools/Config.mk's BOARD_DRIVERS_DIR
+# (boards/<arch>/<chip>/drivers, falling back to drivers/dummy otherwise).
+#
+# $(TOPDIR) = nuttxspace/nuttx/
+############################################################################
+
+include $(TOPDIR)/../drivers/sensors/Make.defs

@@ -4,13 +4,26 @@
 # Included by nuttxspace/nuttx/drivers/platform/Make.defs, which is itself
 # included by nuttxspace/nuttx/drivers/Makefile when CONFIG_SPECIFIC_DRIVERS=y.
 #
-# $(TOPDIR) = nuttxspace/nuttx/
-# $(TOPDIR)/../drivers/sensors/ = nuttxspace/drivers/sensors/
+# The sub-make that builds drivers/ always runs with nuttxspace/nuttx/drivers
+# as its CWD, so a plain relative path resolves correctly here. Do NOT anchor
+# this to $(TOPDIR): mkdeps concatenates each --dep-path with the (already
+# VPATH-resolved, absolute) source path assuming the result is a relative
+# path, so an absolute --dep-path silently produces an unfindable file and
+# the build fails with "not found at any location".
+#
+# ../../drivers/sensors/ = nuttxspace/drivers/sensors/
 ############################################################################
 
 ifeq ($(CONFIG_SENSORS_ICM40609D),y)
   CSRCS += icm40609d.c
 
-  DEPPATH += --dep-path $(TOPDIR)/../drivers/sensors
-  VPATH   += :$(TOPDIR)/../drivers/sensors
+  DEPPATH += --dep-path ../../drivers/sensors
+  VPATH   += :../../drivers/sensors
+endif
+
+ifeq ($(CONFIG_SENSORS_ICM42688P),y)
+  CSRCS += icm42688p-fifo.c
+
+  DEPPATH += --dep-path ../../drivers/sensors
+  VPATH   += :../../drivers/sensors
 endif

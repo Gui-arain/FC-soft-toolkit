@@ -16,6 +16,9 @@
 #include <nuttx/bits.h>
 #include <nuttx/mutex.h>
 #include <nuttx/signal.h>
+#include <fcntl.h>
+#include <arch/irq.h>
+#include <nuttx/arch.h>
 
 //#include <nuttx/compiler.h> -> moved to <nuttx/sensors/icm42688p.h>
 #include <nuttx/kmalloc.h>
@@ -525,7 +528,7 @@ struct icm_dev_s
   FAR struct pollfd   *fds[ICM_NPOLLWAITERS];
   uint16_t             watermark_samples; // Configures the watermark threshold after which the IMU will trigger an interrupt
   bool                 streaming;     /* true once FIFO+IRQ both armed */
-  int                  crefs          // Tracks how many fds are open
+  int                  crefs;          // Tracks how many fds are open
 };
 
 /****************************************************************************
@@ -537,6 +540,9 @@ static int icm_close(FAR struct file *filep);
 static ssize_t icm_read(FAR struct file *filep, FAR char *buf, size_t len);
 static int icm_poll(FAR struct file *filep, FAR struct pollfd *fds, bool setup);
 static int icm_ioctl(FAR struct file *filep, int cmd, unsigned long arg);
+
+static int icm_fifo_isr(int irq, FAR void *context, FAR void *arg);
+static void icm_fifo_worker(FAR void *arg);
 
 static int icm_set_gyro_fsr(FAR struct icm_dev_s *dev, uint16_t dps);
 static int icm_set_accel_fsr(FAR struct icm_dev_s *dev, uint16_t g);
@@ -860,7 +866,7 @@ static int icm_fifo_start(FAR struct icm_dev_s *dev)
   ret = __icm_write_reg(dev, TMST_CONFIG, &tmst_config, 1);
   if(ret < 0)return ret;
 
-  ret = __icm_write_reg(dev, FIFO_CONFIG1, &fifo_config123, 3);
+  ret = __icm_write_reg(dev, FIFO_CONFIG1, fifo_config123, 3);
   if(ret < 0)return ret;
 
   ret = __icm_write_reg(dev, INT_SOURCE0, &int_source0, 1);
@@ -1142,7 +1148,7 @@ static int icm_set_accel_fsr(FAR struct icm_dev_s *dev, uint16_t g)
   ret = __icm_write_reg(dev, ACCEL_CONFIG0, &reg, 1);
   if (ret >= 0)
     {
-      dev->afs_sel = fsr_sel;
+      dev->acc_fs_sel = fsr_sel;
     }
 
 out:
@@ -1842,7 +1848,6 @@ static int icm_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 {
   FAR struct inode *inode = filep->f_inode;
   FAR struct icm_dev_s *dev = inode->i_private;
-  uint8_t write_data = (uint8_t)arg;
   int ret = OK;
 
 switch (cmd)
