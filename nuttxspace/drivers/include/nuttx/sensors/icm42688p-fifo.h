@@ -101,15 +101,30 @@ struct icm42688p_offset_s
   int16_t z;
 };
 
+/****************************************************************************
+ * Parsed sample — what actually goes in the ring buffer. Keep it
+ * pre-converted (host byte order) rather than storing raw register bytes,
+ * since the consumer shouldn't have to know the wire format.
+ ****************************************************************************/
+
+begin_packed_struct struct icm_fifo_sample_s
+{
+  int16_t  accel_x, accel_y, accel_z;
+  int16_t  gyro_x, gyro_y, gyro_z;
+  int8_t   temp;          /* FIFO temp is 8-bit; see datasheet conversion */
+  uint16_t tmst;           /* raw ODR timestamp counter from FIFO */
+} end_packed_struct;
+
 /* Specifies the initial chip configuration and bus wiring.
  *
  * This driver supports SPI only.  Zero-initialise the struct and then
- * set the spi/spi_devid fields:
+ * set the spi/spi_devid/irq fields:
  *
  *    struct icm_config_s cfg;
  *    memset(&cfg, 0, sizeof(cfg));
- *    cfg.spi      = spi_bus;
+ *    cfg.spi       = spi_bus;
  *    cfg.spi_devid = FC_IMU_SPIDEV;
+ *    cfg.irq       = STM32_IRQ_EXTI4;   // whatever line INT1 is wired to
  */
 
 struct icm_config_s
@@ -123,6 +138,14 @@ struct icm_config_s
 
   FAR struct spi_dev_s *spi;
   int spi_devid;
+
+  /* irq : the arch-specific IRQ number wired to the chip's INT1 pin
+   *       (e.g. STM32_IRQ_EXTI4). The board is responsible for configuring
+   *       that GPIO as an EXTI input; this driver only attaches to and
+   *       enables/disables the already-numbered IRQ.
+   */
+
+  int irq;
 };
 
 /****************************************************************************

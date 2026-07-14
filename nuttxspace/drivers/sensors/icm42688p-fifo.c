@@ -17,7 +17,7 @@
 #include <nuttx/mutex.h>
 #include <nuttx/signal.h>
 #include <fcntl.h>
-#include <arch/irq.h>
+#include <nuttx/irq.h>
 #include <nuttx/arch.h>
 
 //#include <nuttx/compiler.h> -> moved to <nuttx/sensors/icm42688p.h>
@@ -55,7 +55,7 @@
 
 /* SPI bus frequency */
 
-#define ICM_SPI_FREQ 10000000 // SPI frequency set to 10MHz (based on clock config)
+#define ICM_SPI_FREQ 10000000 // SPI frequency set to 10MHz (based on clock config /2)
 
 /* FIFO readings */
 
@@ -66,7 +66,7 @@
 #define ICM_FIFO_HEADER_ACCEL  BIT(6)
 #define ICM_FIFO_HEADER_GYRO   BIT(5)
 
-#define FIFO_WM_REC_TH 50 // Default watermark threshold in number of samples
+#define FIFO_WM_REC_TH 50 // 50 : 32kHz -> 641Hz Default watermark threshold in number of samples 
 
 #define ICM_NPOLLWAITERS       4
 
@@ -488,20 +488,6 @@ enum icm_regaddr_e
 };
 
 
-/****************************************************************************
- * Parsed sample — what actually goes in the ring buffer. Keep it
- * pre-converted (host byte order) rather than storing raw register bytes,
- * since the consumer shouldn't have to know the wire format.
- ****************************************************************************/
-
-begin_packed_struct struct icm_fifo_sample_s
-{
-  int16_t  accel_x, accel_y, accel_z;
-  int16_t  gyro_x, gyro_y, gyro_z;
-  int8_t   temp;          /* FIFO temp is 8-bit; see datasheet conversion */
-  uint16_t tmst;           /* raw ODR timestamp counter from FIFO */
-} end_packed_struct;
-
 /* Used by the driver to manage the device */
 
 struct icm_dev_s
@@ -640,7 +626,7 @@ static int __icm_write_reg_spi(FAR struct icm_dev_s *dev, enum icm_regaddr_e reg
 
   SPI_LOCK(spi, true);
   SPI_SETMODE(spi, SPIDEV_MODE0); //CPOL = 0 (Low), CPHA = 0 (1 Edge)
-  SPI_SETFREQUENCY(spi, 2000000); // SPI frequency set to 2MHz (based on clock config)
+  SPI_SETFREQUENCY(spi, ICM_SPI_FREQ); // SPI frequency set to 2MHz (based on clock config)
 
   /* Select the chip. */
 
@@ -844,9 +830,11 @@ static int icm_fifo_start(FAR struct icm_dev_s *dev)
   const uint8_t fifo_config1 = FIFO_CONFIG1__FIFO_RESUME_PARTIAL_RD | FIFO_CONFIG1__FIFO_WM_GT_TH | 
                                FIFO_CONFIG1__FIFO_TEMP_EN |FIFO_CONFIG1__FIFO_GYRO_EN | FIFO_CONFIG1__FIFO_ACCEL_EN; 
   
-  // Watermark threshold config based on the icm dev struct variable
-  const uint8_t fifo_config2 = (uint8_t)(dev->watermark_samples & 0xff);
-  const uint8_t fifo_config3 = (uint8_t)((dev->watermark_samples >> 8) & 0xff);
+  // Watermark threshold config based on the default setting
+  dev->watermark_samples = FIFO_WM_REC_TH;
+
+  const uint8_t fifo_config2 = (uint8_t)(FIFO_WM_REC_TH & 0xff);
+  const uint8_t fifo_config3 = (uint8_t)((FIFO_WM_REC_TH >> 8) & 0xff);
   
   /* Interrupt output 1 configuration
    * INT_SOURCE0__FIFO_THS_INT1_EN = 1        => configure INT1 on the FIFO watermark threshold
@@ -872,9 +860,9 @@ static int icm_fifo_start(FAR struct icm_dev_s *dev)
   ret = __icm_write_reg(dev, INT_SOURCE0, &int_source0, 1);
   if(ret < 0)return ret;
 
-  // Attach and enable the interrupt on pin PF5 and pass the interrupt handler function
-  irq_attach(STM32_IRQ_EXTI95, icm_fifo_isr, dev);
-  up_enable_irq(STM32_IRQ_EXTI95);
+  // Attach and enable the interrupt on the board-configured INT1 line
+  irq_attach(dev->config.irq, icm_fifo_isr, dev);
+  up_enable_irq(dev->config.irq);
 
   dev->streaming = true; // Signals the FIFO+IRQ are armed and streaming
 
@@ -900,8 +888,8 @@ static int icm_fifo_stop(FAR struct icm_dev_s *dev)
    * the FIFO and detaching the handler.
    */
 
-  up_disable_irq(STM32_IRQ_EXTI95);
-  irq_detach(STM32_IRQ_EXTI95);
+  up_disable_irq(dev->config.irq);
+  irq_detach(dev->config.irq);
 
   nxmutex_lock(&dev->lock);
   /* Clear INT1 FIFO threshold routing. */
