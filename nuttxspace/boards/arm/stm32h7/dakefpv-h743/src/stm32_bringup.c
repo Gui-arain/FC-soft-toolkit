@@ -42,9 +42,63 @@
 #  include <nuttx/video/fb.h>
 #endif
 
+#ifdef CONFIG_SENSORS_ICM42688P
+#  include <string.h>
+#  include <arch/irq.h>
+#  include <nuttx/spi/spi.h>
+#  include <nuttx/sensors/icm42688p-fifo.h>
+#  include "stm32_spi.h"
+#endif
+
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
+
+#ifdef CONFIG_SENSORS_ICM42688P
+
+/****************************************************************************
+ * Name: fc_imu_register
+ *
+ * Description:
+ *   Register the two ICM-42688-P IMU drivers, per
+ *   resources/FC-boards/DAKEFPV_H743:
+ *     IMU1: SPI1 (CS: PA4, EXTI: PC4) -> /dev/imu0
+ *     IMU2: SPI4 (CS: PB1, EXTI: PB2) -> /dev/imu1
+ *
+ ****************************************************************************/
+
+static int fc_imu_register(int bus, uint32_t spi_devid, int irq,
+                           FAR const char *path)
+{
+  FAR struct spi_dev_s *spi;
+  struct icm_config_s cfg;
+  int ret;
+
+  spi = stm32_spibus_initialize(bus);
+  if (spi == NULL)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to get SPI%d for IMU\n", bus);
+      return -ENODEV;
+    }
+
+  memset(&cfg, 0, sizeof(cfg));
+  cfg.spi       = spi;
+  cfg.spi_devid = spi_devid;
+  cfg.irq       = irq;
+
+  ret = icm42688p_register(path, &cfg);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR,
+             "ERROR: icm42688p_register(%s) failed: %d\n", path, ret);
+      return ret;
+    }
+
+  syslog(LOG_INFO, "IMU (ICM-42688-P) registered at %s\n", path);
+  return OK;
+}
+
+#endif /* CONFIG_SENSORS_ICM42688P */
 
 /****************************************************************************
  * Public Functions
@@ -103,6 +157,20 @@ int stm32_bringup(void)
   if (ret < 0)
     {
       syslog(LOG_ERR, "ERROR: fb_register() failed: %d\n", ret);
+    }
+#endif
+
+#ifdef CONFIG_SENSORS_ICM42688P
+  ret = fc_imu_register(1, FC_IMU1_SPIDEV, STM32_IRQ_EXTI4, "/dev/imu0");
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: fc_imu_register(/dev/imu0) failed: %d\n", ret);
+    }
+
+  ret = fc_imu_register(4, FC_IMU2_SPIDEV, STM32_IRQ_EXTI2, "/dev/imu1");
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: fc_imu_register(/dev/imu1) failed: %d\n", ret);
     }
 #endif
 

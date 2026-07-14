@@ -97,12 +97,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Doc/NuttX setup 🥜.md",
+                "file": "Doc/drivers/ICM-40609-D @ 32kHz — Legacy NuttX Driver Sketch.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "NuttX setup 🥜"
+              "title": "ICM-40609-D @ 32kHz — Legacy NuttX Driver Sketch"
             }
           }
         ],
@@ -271,18 +271,18 @@
   "active": "6dbe9dc09ca20c3d",
   "lastOpenFiles": [
     "nuttxspace/boards/arm/stm32h7/dakefpv-h743/scripts/flash.ld.tmp",
-    "nuttxspace/nuttx/libs/libc/stCvc0ts",
-    "nuttxspace/nuttx/drivers/stzep5ya",
-    "nuttxspace/nuttx/drivers/pipe.ddc",
-    "nuttxspace/nuttx/drivers/fifo.ddc",
-    "nuttxspace/nuttx/drivers/ramdisk.ddc",
+    "nuttxspace/nuttx/libs/libc/stzgFf59",
+    "nuttxspace/nuttx/arch/arm/src/sttovs85",
+    "nuttxspace/nuttx/libs/libc/stQlndgi",
+    "nuttxspace/nuttx/drivers/stUsorHy",
+    "nuttxspace/nuttx/drivers/serial_io.ddc",
+    "nuttxspace/nuttx/drivers/serial.ddc",
     "nuttxspace/nuttx/drivers/dev_zero.ddc",
-    "nuttxspace/nuttx/drivers/mkrd.ddc",
-    "nuttxspace/nuttx/drivers/dev_null.ddc",
-    "nuttxspace/nuttx/drivers/losetup.ddc",
-    "nuttxspace/nuttx/drivers/drivers_initialize.ddc",
-    "Doc/NuttX Build Config.md",
+    "nuttxspace/nuttx/drivers/pipe_common.ddc",
+    "nuttxspace/nuttx/drivers/fifo.ddc",
+    "nuttxspace/nuttx/drivers/pipe.ddc",
     "Doc/NuttX setup 🥜.md",
+    "Doc/NuttX Build Config.md",
     "Doc/STM32 Settings ⚙️.md",
     "Doc/Sensors Settings 📐.md",
     "Doc/NuttX Board Port.md",

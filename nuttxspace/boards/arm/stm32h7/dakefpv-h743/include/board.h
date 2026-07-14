@@ -120,7 +120,7 @@
  *   PLL1_VCO = (8 MHz / 2) * 40 = 160 MHz
  *
  *   PLL2P = PLL2_VCO/2  = 160 MHz / 8   = 20 MHz
- *   PLL2Q = PLL2_VCO/4  = 160 MHz / 20  = 8 MHz
+ *   PLL2Q = PLL2_VCO/4  = 160 MHz / 8  = 20 MHz
  *   PLL2R = PLL2_VCO/8  = 160 MHz / 2   = 80 MHz
  */
 #define STM32_PLLCFG_PLL2CFG (RCC_PLLCFGR_PLL2VCOSEL_WIDE | \
@@ -131,13 +131,13 @@
 
 #define STM32_VCO2_FREQUENCY     ((STM32_HSE_FREQUENCY / 2) * 40)
 #define STM32_PLL2P_FREQUENCY    (STM32_VCO2_FREQUENCY / 8)
-#define STM32_PLL2Q_FREQUENCY    (STM32_VCO2_FREQUENCY / 20)
+#define STM32_PLL2Q_FREQUENCY    (STM32_VCO2_FREQUENCY / 8)
 #define STM32_PLL2R_FREQUENCY    (STM32_VCO2_FREQUENCY / 2)
 
 #define STM32_PLLCFG_PLL2M       RCC_PLLCKSELR_DIVM2(2)
 #define STM32_PLLCFG_PLL2N       RCC_PLL2DIVR_N2(40)
 #define STM32_PLLCFG_PLL2P       RCC_PLL2DIVR_P2(8)
-#define STM32_PLLCFG_PLL2Q       RCC_PLL2DIVR_Q2(20)
+#define STM32_PLLCFG_PLL2Q       RCC_PLL2DIVR_Q2(8)
 #define STM32_PLLCFG_PLL2R       RCC_PLL2DIVR_R2(2)
 
 /* PLL3 - wide 4 - 8 MHz input, enable DIVP, DIVQ, DIVR
@@ -238,9 +238,14 @@
 
 #define STM32_RCC_D3CCIPR_I2C4SRC    RCC_D3CCIPR_I2C4SEL_HSI
 
-/* SPI123 clock source - PLL3P */
+/* SPI123 clock source - PLL2P
+ *
+ * PLL3 is not supported by this NuttX version's SPI123 kernel clock
+ * selection (see arch/arm/src/stm32h7/stm32_spi.c); PLL2 is already used
+ * for SPI45, so SPI1 (IMU1) shares it.
+ */
 
-#define STM32_RCC_D2CCIP1R_SPI123SRC RCC_D2CCIP1R_SPI123SEL_PLL3
+#define STM32_RCC_D2CCIP1R_SPI123SRC RCC_D2CCIP1R_SPI123SEL_PLL2
 
 /* SPI45 clock source - PLL2Q */
 

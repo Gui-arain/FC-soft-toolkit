@@ -108,23 +108,34 @@
 #define GPIO_LD1       (GPIO_OUTPUT | GPIO_PUSHPULL | GPIO_SPEED_50MHz | \
                         GPIO_OUTPUT_CLEAR | GPIO_PORTD | GPIO_PIN10)
 
-/* BUTTONS
+
+/* IMU (2x ICM-42688-P), per resources/FC-boards/DAKEFPV_H743
  *
- * The pushbutton K1 is connected to GPIO PC13.
+ * IMU1: SPI1  SCK=PA5, MISO=PA6, MOSI=PA7, CS=PA4,  EXTI=PC4
+ * IMU2: SPI4  SCK=PE12, MISO=PE13, MOSI=PE14, CS=PB1, EXTI=PB2
  */
 
-#define GPIO_BTN_USER  (GPIO_INPUT | GPIO_FLOAT | GPIO_EXTI | GPIO_PORTC | GPIO_PIN13)
+#define GPIO_IMU1_CS    (GPIO_OUTPUT | GPIO_PUSHPULL | GPIO_SPEED_50MHz | \
+                         GPIO_OUTPUT_SET | GPIO_PORTA | GPIO_PIN4)   /* PA4  */
 
-/* LCD ST7735 */
+#define GPIO_IMU2_CS    (GPIO_OUTPUT | GPIO_PUSHPULL | GPIO_SPEED_50MHz | \
+                         GPIO_OUTPUT_SET | GPIO_PORTB | GPIO_PIN1)   /* PB1  */
 
-#define GPIO_LCD_DC     (GPIO_OUTPUT | GPIO_PUSHPULL | GPIO_SPEED_50MHz | \
-                         GPIO_OUTPUT_CLEAR | GPIO_PORTE | GPIO_PIN13)
+#define FC_IMU1_SPIDEV  SPIDEV_IMU(0)
+#define FC_IMU2_SPIDEV  SPIDEV_IMU(1)
 
-#define GPIO_LCD_CS     (GPIO_OUTPUT | GPIO_PUSHPULL | GPIO_SPEED_50MHz | \
-                         GPIO_OUTPUT_CLEAR | GPIO_PORTE | GPIO_PIN11)
+/* IMU data-ready interrupts (INT1, push-pull active-high on the
+ * ICM-42688-P). GPIO_EXTI is baked into these definitions so a single
+ * stm32_gpiosetevent() call both configures the pin and routes the
+ * SYSCFG EXTI mux, without attaching a handler (the driver attaches its
+ * own via irq_attach()/up_enable_irq() when it starts streaming).
+ */
 
-#define GPIO_LCD_LED     (GPIO_OUTPUT | GPIO_PUSHPULL | GPIO_SPEED_50MHz | \
-                          GPIO_OUTPUT_CLEAR | GPIO_PORTE | GPIO_PIN10)
+#define GPIO_IMU1_INT   (GPIO_INPUT | GPIO_FLOAT | GPIO_EXTI | \
+                         GPIO_PORTC | GPIO_PIN4)   /* PC4 -> STM32_IRQ_EXTI4 */
+
+#define GPIO_IMU2_INT   (GPIO_INPUT | GPIO_FLOAT | GPIO_EXTI | \
+                         GPIO_PORTB | GPIO_PIN2)   /* PB2 -> STM32_IRQ_EXTI2 */
 
 /* SD Card
  *

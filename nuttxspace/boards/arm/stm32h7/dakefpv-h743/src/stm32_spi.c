@@ -56,8 +56,17 @@
 
 void stm32_spidev_initialize(void)
 {
-#ifdef CONFIG_LCD_ST7735
-  stm32_configgpio(GPIO_LCD_CS);    /* ST7735 chip select */
+#ifdef CONFIG_SENSORS_ICM42688P
+  stm32_configgpio(GPIO_IMU1_CS);   /* ICM-42688-P #1 chip select (SPI1) */
+  stm32_configgpio(GPIO_IMU2_CS);   /* ICM-42688-P #2 chip select (SPI4) */
+
+  /* Arm the data-ready EXTI lines (rising edge, no handler yet — the
+   * driver attaches its own via irq_attach()/up_enable_irq() when it
+   * starts streaming, see icm_fifo_start() in icm42688p-fifo.c).
+   */
+
+  stm32_gpiosetevent(GPIO_IMU1_INT, true, false, false, NULL, NULL);
+  stm32_gpiosetevent(GPIO_IMU2_INT, true, false, false, NULL, NULL);
 #endif
 }
 
@@ -100,9 +109,45 @@ void stm32_spi4select(struct spi_dev_s *dev,
       stm32_gpiowrite(GPIO_LCD_CS, !selected);
     }
 #endif
+
+#ifdef CONFIG_SENSORS_ICM42688P
+  if (devid == FC_IMU2_SPIDEV)
+    {
+      stm32_gpiowrite(GPIO_IMU2_CS, !selected);   /* active low */
+    }
+#endif
 }
 
 uint8_t stm32_spi4status(struct spi_dev_s *dev, uint32_t devid)
+{
+  return 0;
+}
+#endif
+
+/****************************************************************************
+ * Name: stm32_spi1select and stm32_spi1status
+ *
+ * Description:
+ *   SPI1 chip-select — IMU #1 (ICM-42688-P) on PA4.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_STM32H7_SPI1
+void stm32_spi1select(struct spi_dev_s *dev,
+                      uint32_t devid, bool selected)
+{
+  spiinfo("devid: %d CS: %s\n",
+          (int)devid, selected ? "assert" : "de-assert");
+
+#ifdef CONFIG_SENSORS_ICM42688P
+  if (devid == FC_IMU1_SPIDEV)
+    {
+      stm32_gpiowrite(GPIO_IMU1_CS, !selected);   /* active low */
+    }
+#endif
+}
+
+uint8_t stm32_spi1status(struct spi_dev_s *dev, uint32_t devid)
 {
   return 0;
 }
