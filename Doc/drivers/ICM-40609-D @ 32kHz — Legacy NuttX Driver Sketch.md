@@ -271,3 +271,12 @@ while (1)
 	} 
 }
 ```
+
+### Enabling the driver
+
+In menuconfig you need to select:
+```
+Board Specific drivers
+FC Soft Toolkit Drivers -> IvenSense ICM-42688-P ...
+fc-stack -> Estimator Main
+```

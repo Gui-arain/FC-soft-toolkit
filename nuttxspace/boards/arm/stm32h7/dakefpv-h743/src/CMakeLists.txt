@@ -34,10 +34,6 @@ if(CONFIG_VIDEO_FB)
   endif()
 endif()
 
-if(CONFIG_STM32H7_SDMMC)
-  list(APPEND SRCS stm32_sdmmc.c)
-endif()
-
 if(CONFIG_FAT_DMAMEMORY)
   list(APPEND SRCS stm32_dma_alloc.c)
 endif()

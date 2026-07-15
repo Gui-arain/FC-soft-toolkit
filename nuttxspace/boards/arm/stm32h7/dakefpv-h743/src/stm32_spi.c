@@ -37,13 +37,62 @@
 #include "chip.h"
 #include "stm32_gpio.h"
 #include "stm32_spi.h"
+#include "hardware/stm32_exti.h"
 
 #include "dakefpv-h743.h"
 #include <arch/board/board.h>
 
 /****************************************************************************
+ * Private Functions
+ ****************************************************************************/
+
+#ifdef CONFIG_SENSORS_ICM42688P
+/****************************************************************************
+ * Name: stm32_imu_int_placeholder
+ *
+ * Description:
+ *   stm32_gpiosetevent() only sets the EXTI peripheral's own interrupt
+ *   mask register (separate from, and in addition to, the NVIC enable
+ *   toggled by up_enable_irq()/up_disable_irq()) when passed a non-NULL
+ *   handler. A NULL handler here would leave the EXTI line masked at the
+ *   source forever, regardless of anything the driver does at the NVIC
+ *   level — so this placeholder exists purely to get that bit set once
+ *   at boot. The driver's own irq_attach() in icm_fifo_start() overwrites
+ *   the actual vector once streaming begins; this is never called for
+ *   real.
+ ****************************************************************************/
+
+static int stm32_imu_int_placeholder(int irq, FAR void *context,
+                                     FAR void *arg)
+{
+  return OK;
+}
+#endif
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
+
+#ifdef CONFIG_SENSORS_ICM42688P
+/****************************************************************************
+ * Name: stm32_imu1_irq_ack / stm32_imu2_irq_ack
+ *
+ * Description:
+ *   Clears the EXTI pending bit for IMU1 (PC4, line 4) / IMU2 (PB2, line
+ *   2). Passed to the driver as icm_config_s.irq_ack — see that field's
+ *   doc comment for why this is required.
+ ****************************************************************************/
+
+void stm32_imu1_irq_ack(void)
+{
+  putreg32(STM32_EXTI_MASK(4), STM32_EXTI_CPUPR1);
+}
+
+void stm32_imu2_irq_ack(void)
+{
+  putreg32(STM32_EXTI_MASK(2), STM32_EXTI_CPUPR1);
+}
+#endif
 
 /****************************************************************************
  * Name: stm32_spidev_initialize
@@ -60,13 +109,17 @@ void stm32_spidev_initialize(void)
   stm32_configgpio(GPIO_IMU1_CS);   /* ICM-42688-P #1 chip select (SPI1) */
   stm32_configgpio(GPIO_IMU2_CS);   /* ICM-42688-P #2 chip select (SPI4) */
 
-  /* Arm the data-ready EXTI lines (rising edge, no handler yet — the
-   * driver attaches its own via irq_attach()/up_enable_irq() when it
-   * starts streaming, see icm_fifo_start() in icm42688p-fifo.c).
+  /* Arm the data-ready EXTI lines (rising edge). A non-NULL handler is
+   * required here so stm32_gpiosetevent() unmasks the EXTI line itself —
+   * see stm32_imu_int_placeholder() above. The driver takes over the
+   * actual vector via irq_attach()/up_enable_irq() when it starts
+   * streaming (icm_fifo_start() in icm42688p-fifo.c).
    */
 
-  stm32_gpiosetevent(GPIO_IMU1_INT, true, false, false, NULL, NULL);
-  stm32_gpiosetevent(GPIO_IMU2_INT, true, false, false, NULL, NULL);
+  stm32_gpiosetevent(GPIO_IMU1_INT, true, false, false,
+                     stm32_imu_int_placeholder, NULL);
+  stm32_gpiosetevent(GPIO_IMU2_INT, true, false, false,
+                     stm32_imu_int_placeholder, NULL);
 #endif
 }
 

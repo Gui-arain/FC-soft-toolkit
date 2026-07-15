@@ -29,10 +29,14 @@
 #include <sys/types.h>
 #include <syslog.h>
 #include <errno.h>
+#include <sched.h>
+#include <unistd.h>
+#include <stdbool.h>
 
 #include <arch/board/board.h>
 
 #include <nuttx/fs/fs.h>
+#include <nuttx/kthread.h>
 
 #include "dakefpv-h743.h"
 
@@ -68,7 +72,7 @@
  ****************************************************************************/
 
 static int fc_imu_register(int bus, uint32_t spi_devid, int irq,
-                           FAR const char *path)
+                           CODE void (*irq_ack)(void), FAR const char *path)
 {
   FAR struct spi_dev_s *spi;
   struct icm_config_s cfg;
@@ -85,6 +89,7 @@ static int fc_imu_register(int bus, uint32_t spi_devid, int irq,
   cfg.spi       = spi;
   cfg.spi_devid = spi_devid;
   cfg.irq       = irq;
+  cfg.irq_ack   = irq_ack;
 
   ret = icm42688p_register(path, &cfg);
   if (ret < 0)
@@ -99,6 +104,36 @@ static int fc_imu_register(int bus, uint32_t spi_devid, int irq,
 }
 
 #endif /* CONFIG_SENSORS_ICM42688P */
+
+/****************************************************************************
+ * Name: heartbeat_main
+ *
+ * Description:
+ *   Toggles GPIO_LD1 on its own kernel thread, independent of HPWORK, the
+ *   console, and USB. Purely a diagnostic: no debugger is currently
+ *   attached (SWD isn't wired up right now), so this is the only way to
+ *   tell "whole system locked up" apart from "one task/driver call is
+ *   stuck" by eye — if this stops blinking, the lockup is global; if it
+ *   keeps blinking, whatever's stuck is isolated to that one task/call.
+ *   Remove once the estimator hang is root-caused.
+ *
+ ****************************************************************************/
+
+static int heartbeat_main(int argc, FAR char *argv[])
+{
+  bool state = false;
+
+  stm32_configgpio(GPIO_LD1);
+
+  for (; ; )
+    {
+      state = !state;
+      stm32_gpiowrite(GPIO_LD1, state);
+      usleep(300 * 1000);
+    }
+
+  return 0;
+}
 
 /****************************************************************************
  * Public Functions
@@ -121,6 +156,15 @@ int stm32_bringup(void)
 
   UNUSED(ret);
 
+  /* Priority deliberately near-max (well above the estimator task's
+   * SCHED_PRIORITY_DEFAULT and close to HPWORK's 224): if this still
+   * blinks through a freeze that a lower-priority heartbeat missed, the
+   * freeze is CPU starvation from a spin-loop in some other task/thread's
+   * context, not a true global-interrupt lockup.
+   */
+
+  kthread_create("heartbeat", 230, 1024, heartbeat_main, NULL);
+
 #ifdef CONFIG_FS_PROCFS
   /* Mount the procfs file system */
 
@@ -139,17 +183,6 @@ int stm32_bringup(void)
     }
 #endif
 
-#ifdef HAVE_SDIO
-  /* Initialize the SDIO block driver */
-
-  ret = stm32_sdio_initialize();
-  if (ret < 0)
-    {
-      syslog(LOG_ERR,
-             "ERROR: Failed to initialize MMC/SD driver: %d\n", ret);
-    }
-#endif
-
 #ifdef CONFIG_VIDEO_FB
   /* Initialize and register the framebuffer driver */
 
@@ -161,13 +194,15 @@ int stm32_bringup(void)
 #endif
 
 #ifdef CONFIG_SENSORS_ICM42688P
-  ret = fc_imu_register(1, FC_IMU1_SPIDEV, STM32_IRQ_EXTI4, "/dev/imu0");
+  ret = fc_imu_register(1, FC_IMU1_SPIDEV, STM32_IRQ_EXTI4,
+                        stm32_imu1_irq_ack, "/dev/imu0");
   if (ret < 0)
     {
       syslog(LOG_ERR, "ERROR: fc_imu_register(/dev/imu0) failed: %d\n", ret);
     }
 
-  ret = fc_imu_register(4, FC_IMU2_SPIDEV, STM32_IRQ_EXTI2, "/dev/imu1");
+  ret = fc_imu_register(4, FC_IMU2_SPIDEV, STM32_IRQ_EXTI2,
+                        stm32_imu2_irq_ack, "/dev/imu1");
   if (ret < 0)
     {
       syslog(LOG_ERR, "ERROR: fc_imu_register(/dev/imu1) failed: %d\n", ret);

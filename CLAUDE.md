@@ -4,7 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-FC Soft Toolkit is flight controller firmware for the **Shirley FC**, a custom flight controller based on STM32H743ZIT6 (ARM Cortex-M7). The project supports both baremetal development via STM32CubeIDE and Apache NuttX RTOS.
+FC Soft Toolkit is flight controller firmware for STM32H743ZIT6-based (ARM Cortex-M7) flight controllers. The project supports both baremetal development via STM32CubeIDE and Apache NuttX RTOS, and targets two board ports:
+
+- **Shirley FC** — custom flight controller, single IMU (ICM-40609-D). Board port: `shirley-fc-dev-board`.
+- **DAKEFPV_H743** — dual-IMU (2x ICM-42688-P) flight controller. Board port: `dakefpv-h743`. Board reference files (Betaflight config, ChibiOS hw def) live in `resources/FC-boards/DAKEFPV_H743/`.
 
 ## Build Commands
 
@@ -20,8 +23,9 @@ Built through STM32CubeIDE. Current projects:
 Run all commands from `nuttxspace/nuttx/`.
 
 ```bash
-# Configure board
+# Configure board (pick one)
 ./tools/configure.sh shirley-fc-dev-board:nsh
+./tools/configure.sh dakefpv-h743:nsh      # also has :usbnsh and :st7735 configs
 
 # Interactive configuration
 make menuconfig
@@ -59,10 +63,12 @@ FC-soft-toolkit/
 ├── nuttxspace/
 │   ├── nuttx/              ← submodule (apache/nuttx) — DO NOT MODIFY
 │   ├── apps/               ← submodule (apache/nuttx-apps) — DO NOT MODIFY
-│   ├── boards/             ← custom board port (out-of-tree)
-│   │   └── arm/stm32h7/shirley-fc-dev-board/
+│   ├── boards/             ← custom board ports (out-of-tree)
+│   │   └── arm/stm32h7/
+│   │       ├── shirley-fc-dev-board/  ← Shirley FC (single ICM-40609-D)
+│   │       └── dakefpv-h743/          ← DAKEFPV_H743 (dual ICM-42688-P)
 │   ├── drivers/            ← custom out-of-tree drivers
-│   │   └── sensors/icm40609d.c/.h
+│   │   └── sensors/icm40609d.c, icm40609d-fifo.c, icm42688p-fifo.c (+ headers)
 │   ├── fc-stack/           ← flight controller application modules
 │   │   ├── fc_core/        ← main FC loop (C++)
 │   │   └── estimator/      ← attitude estimator (C++)
@@ -88,6 +94,8 @@ FC-soft-toolkit/
 
 ### Hardware
 
+**Shirley FC** (board port: `shirley-fc-dev-board`)
+
 - **MCU**: STM32H743ZIT6 @ 480 MHz max
 - **IMU**: ICM-40609-D (SPI5)
 - **Magnetometer**: MMC5983MA (SPI4)
@@ -96,9 +104,19 @@ FC-soft-toolkit/
 - **Debug**: SWD via J-Link or ST-LINK (PA13/PA14/PB3)
 - **Power**: Dual 3.3 V rails (digital + analog for sensor isolation)
 
-## Key Peripheral Pins
+**DAKEFPV_H743** (board port: `dakefpv-h743`)
 
-Source of truth: `config/pinout.yaml`
+- **MCU**: STM32H743ZIT6
+- **IMU**: 2x ICM-42688-P
+  - IMU1: SPI1, SCK=PA5, MISO=PA6, MOSI=PA7, CS=PA4, INT1(EXTI)=PC4 → `/dev/imu0`
+  - IMU2: SPI4, SCK=PE12, MISO=PE13, MOSI=PE14, CS=PB1, INT1(EXTI)=PB2 → `/dev/imu1`
+- **User LED**: PD10
+- No SD card slot on this board (unlike Shirley FC) — the board port previously carried leftover SDIO/card-detect code inherited from a WeAct-H743VIT reference port; it has been removed.
+- Pin definitions live in `nuttxspace/boards/arm/stm32h7/dakefpv-h743/src/dakefpv-h743.h` (there is no `config/pinout.yaml` entry for this board yet); board reference material (Betaflight config, ChibiOS hw def) is under `resources/FC-boards/DAKEFPV_H743/`.
+
+## Key Peripheral Pins (Shirley FC)
+
+Source of truth: `config/pinout.yaml`. This table applies to **Shirley FC** only — see the Hardware section above for DAKEFPV_H743 pins.
 
 | Peripheral | Function | Pins |
 |---|---|---|
@@ -118,7 +136,9 @@ Source of truth: `config/pinout.yaml`
 
 ## NuttX Out-of-Tree Structure
 
-### Board Port (`nuttxspace/boards/arm/stm32h7/shirley-fc-dev-board/`)
+### Board Ports (`nuttxspace/boards/arm/stm32h7/`)
+
+`shirley-fc-dev-board/`:
 
 - `include/board.h` — clock, pin, and peripheral definitions
 - `src/stm32_boot.c` — early boot
@@ -128,10 +148,21 @@ Source of truth: `config/pinout.yaml`
 - `src/fc-dev.h` — shared board-level pin/device definitions
 - `configs/nsh/defconfig` — board defconfig
 
+`dakefpv-h743/`:
+
+- `include/board.h` — clock, pin, and peripheral definitions
+- `src/stm32_boot.c` — early boot
+- `src/stm32_bringup.c` — peripheral and driver registration, registers both ICM-42688-P IMUs via `fc_imu_register()` (`/dev/imu0`, `/dev/imu1`)
+- `src/stm32_spi.c` — SPI bus/CS routing, EXTI IRQ ack callbacks (`stm32_imu1_irq_ack`/`stm32_imu2_irq_ack`)
+- `src/dakefpv-h743.h` — board-level pin/device definitions (GPIO_IMU1/2_CS, GPIO_IMU1/2_INT, etc.)
+- `configs/nsh/`, `configs/usbnsh/`, `configs/st7735/` — board defconfigs
+
 ### Custom Drivers (`nuttxspace/drivers/`)
 
 - `sensors/icm40609d.c` — ICM-40609-D NuttX character driver
-- `include/nuttx/sensors/icm40609d.h` — driver public header
+- `sensors/icm40609d-fifo.c` — ICM-40609-D FIFO-streaming driver variant
+- `sensors/icm42688p-fifo.c` — ICM-42688-P FIFO-streaming driver (used by DAKEFPV_H743, one instance per IMU); registration takes an `irq_ack` callback (arch/board-specific EXTI pending-bit clear) since the driver attaches directly to the raw IRQ vector
+- `include/nuttx/sensors/icm40609d.h`, `icm40609d-fifo.h`, `icm42688p-fifo.h` — driver public headers
 - `Kconfig` / `sensors/Kconfig` — driver Kconfig entries
 
 ### FC Stack (`nuttxspace/fc-stack/`)

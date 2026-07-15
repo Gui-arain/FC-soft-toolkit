@@ -17,6 +17,13 @@ extern "C" int estimator_main(int argc, char *argv[]);
 
 int estimator_main(int argc, char *argv[])
 {
+    /* stdout is fully C-library buffered here (unlike the driver's syslog()
+     * calls, which write straight to the console) — without this, printf()
+     * output sits in the buffer forever since this loop never exits or
+     * calls fflush().
+     */
+    setvbuf(stdout, NULL, _IONBF, 0);
+
     //Access IMU driver
     struct pollfd pfd;
     pfd.fd = open("/dev/imu0", O_RDONLY | O_NONBLOCK);
@@ -34,6 +41,7 @@ int estimator_main(int argc, char *argv[])
     
     for(;;)
     {
+      printf("estimator: Waiting for poll...\n");
       int ret = poll(&pfd, 1, -1);      /* block indefinitely for data */
       if (ret < 0)
         {
@@ -45,7 +53,7 @@ int estimator_main(int argc, char *argv[])
         {
           continue;
         }
- 
+      printf("estimator: Reading the samples...\n");
       ssize_t nread = read(pfd.fd, sample_array, sizeof(sample_array));
       if (nread < 0)
         {

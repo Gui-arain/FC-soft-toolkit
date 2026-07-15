@@ -125,6 +125,8 @@ begin_packed_struct struct icm_fifo_sample_s
  *    cfg.spi       = spi_bus;
  *    cfg.spi_devid = FC_IMU_SPIDEV;
  *    cfg.irq       = STM32_IRQ_EXTI4;   // whatever line INT1 is wired to
+ *    cfg.irq_ack   = my_board_exti4_ack; // clears the arch's EXTI/GPIO
+ *                                        // pending bit for that line
  */
 
 struct icm_config_s
@@ -146,6 +148,19 @@ struct icm_config_s
    */
 
   int irq;
+
+  /* irq_ack : clears the arch/board-specific pending bit for `irq`.
+   *
+   * This driver attaches directly to the raw IRQ vector (irq_attach()),
+   * bypassing whatever shared per-line dispatcher the arch's GPIO/EXTI
+   * framework would otherwise use — and on STM32 (and most EXTI-style
+   * peripherals), clearing that dispatcher's pending bit is exactly what
+   * makes the interrupt edge-triggered instead of level-triggered. Skip
+   * this and the IRQ re-fires the instant the ISR returns, forever.
+   * Required — must not be NULL.
+   */
+
+  CODE void (*irq_ack)(void);
 };
 
 /****************************************************************************

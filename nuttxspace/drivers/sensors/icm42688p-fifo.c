@@ -17,6 +17,7 @@
 #include <nuttx/mutex.h>
 #include <nuttx/signal.h>
 #include <fcntl.h>
+#include <syslog.h>
 #include <nuttx/irq.h>
 #include <nuttx/arch.h>
 
@@ -511,6 +512,15 @@ struct icm_dev_s
   struct circbuf_s     fifo_rb;        /* ring buffer of icm_fifo_sample_s */
   sem_t                rb_sem;         /* protects fifo_rb (NOT dev->lock) */
   struct work_s        fifo_work;      /* work_queue() job token */
+
+  /* Burst-read scratch buffer for icm_fifo_worker(). ICM_FIFO_MAX_BYTES
+   * (2080) alone exceeds the default HPWORK stack
+   * (CONFIG_SCHED_HPWORKSTACKSIZE, commonly 2048) — this must live off
+   * the worker's stack, not as a local. Only ever touched from
+   * icm_fifo_worker(), which runs one job at a time on HPWORK.
+   */
+
+  uint8_t              fifo_raw[ICM_FIFO_MAX_BYTES];
   FAR struct pollfd   *fds[ICM_NPOLLWAITERS];
   uint16_t             watermark_samples; // Configures the watermark threshold after which the IMU will trigger an interrupt
   bool                 streaming;     /* true once FIFO+IRQ both armed */
@@ -776,17 +786,74 @@ static int icm_reset(FAR struct icm_dev_s *dev)
   /* 6-axis low-noise mode: gyro LN + accel LN */
   const uint8_t pwr_mgmt0 = PWR_MGMT0__GYRO_MODE_LN | PWR_MGMT0__ACCEL_MODE_LN;
 
+  /* INT_CONFIG: reset default is open-drain + active-low (0x00). Our board
+   * wiring (GPIO_IMU1_INT/GPIO_IMU2_INT: floating input, rising-edge EXTI
+   * trigger) assumes push-pull + active-high, so reconfigure INT1 to match.
+   */
+  const uint8_t int_config = INT_CONFIG__INT1_DRIVE_CIRCUIT |
+                             INT_CONFIG__INT1_POLARITY;
+
+  /* INT_CONFIG1: reset default (0x10) leaves INT_ASYNC_RESET set, which
+   * the datasheet says must be cleared "for proper INT1 and INT2 pin
+   * operation". The other two bits already default to 0.
+   */
+  const uint8_t int_config1 = 0x00;
+
   nxmutex_lock(&dev->lock);
 
+  /* Sanity-check the SPI link before touching anything else: if this
+   * comes back wrong (0x00, 0xff, or anything but 0x47), the chip isn't
+   * responding at all — wrong CS/mode/clock/wiring — and every write
+   * below is going nowhere.
+   */
+
+  uint8_t whoami = 0;
+  ret = __icm_read_reg(dev, WHO_AM_I, &whoami, 1);
+  if (ret < 0)
+    {
+      nxmutex_unlock(&dev->lock);
+      return ret;
+    }
+
+  if (whoami != 0x47)
+    {
+      snerr("ERROR: ICM-42688-P WHO_AM_I mismatch: got 0x%02x, expected 0x47 "
+            "— chip not responding on SPI\n", whoami);
+      nxmutex_unlock(&dev->lock);
+      return -ENODEV;
+    }
+
   ret = __icm_write_reg(dev, SIGNAL_PATH_RESET, &signal_path_reset, 1);
-  if (ret < 0) return ret;
+  if (ret < 0)
+    {
+      nxmutex_unlock(&dev->lock);
+      return ret;
+    }
 
   up_mdelay(1);   /* wait for reset to complete */
 
   ret = __icm_write_reg(dev, INTF_CONFIG0, &intf_config0, 1);
-  if (ret < 0) return ret;
+  if (ret < 0)
+    {
+      nxmutex_unlock(&dev->lock);
+      return ret;
+    }
 
   ret = __icm_write_reg(dev, PWR_MGMT0, &pwr_mgmt0, 1);
+  if (ret < 0)
+    {
+      nxmutex_unlock(&dev->lock);
+      return ret;
+    }
+
+  ret = __icm_write_reg(dev, INT_CONFIG, &int_config, 1);
+  if (ret < 0)
+    {
+      nxmutex_unlock(&dev->lock);
+      return ret;
+    }
+
+  ret = __icm_write_reg(dev, INT_CONFIG1, &int_config1, 1);
 
   nxmutex_unlock(&dev->lock);
 
@@ -849,20 +916,38 @@ static int icm_fifo_start(FAR struct icm_dev_s *dev)
   nxmutex_lock(&dev->lock);
 
   ret = __icm_write_reg(dev, FIFO_CONFIG, &fifo_config, 1);
-  if(ret < 0)return ret;  // if an error occured, directly abort and returns it
+  if (ret < 0)  // if an error occured, directly abort and return it
+    {
+      nxmutex_unlock(&dev->lock);
+      return ret;
+    }
 
   ret = __icm_write_reg(dev, TMST_CONFIG, &tmst_config, 1);
-  if(ret < 0)return ret;
+  if (ret < 0)
+    {
+      nxmutex_unlock(&dev->lock);
+      return ret;
+    }
 
   ret = __icm_write_reg(dev, FIFO_CONFIG1, fifo_config123, 3);
-  if(ret < 0)return ret;
+  if (ret < 0)
+    {
+      nxmutex_unlock(&dev->lock);
+      return ret;
+    }
 
   ret = __icm_write_reg(dev, INT_SOURCE0, &int_source0, 1);
-  if(ret < 0)return ret;
+  if (ret < 0)
+    {
+      nxmutex_unlock(&dev->lock);
+      return ret;
+    }
 
   // Attach and enable the interrupt on the board-configured INT1 line
   irq_attach(dev->config.irq, icm_fifo_isr, dev);
+  syslog(LOG_INFO, "icm_fifo_start: irq attached\n");
   up_enable_irq(dev->config.irq);
+  syslog(LOG_INFO, "icm_fifo_start: irq enabled\n");
 
   dev->streaming = true; // Signals the FIFO+IRQ are armed and streaming
 
@@ -895,17 +980,29 @@ static int icm_fifo_stop(FAR struct icm_dev_s *dev)
   /* Clear INT1 FIFO threshold routing. */
 
   ret = __icm_write_reg(dev, INT_SOURCE0, &zeroes, 1);
-  if (ret < 0)return ret;
+  if (ret < 0)
+    {
+      nxmutex_unlock(&dev->lock);
+      return ret;
+    }
 
   /* Disable sensor enables in FIFO. */
 
   ret = __icm_write_reg(dev, FIFO_CONFIG1, &zeroes, 1);
-  if (ret < 0)return ret;
+  if (ret < 0)
+    {
+      nxmutex_unlock(&dev->lock);
+      return ret;
+    }
 
   /* Put FIFO back to bypass mode (clears stream bit). */
 
   ret = __icm_write_reg(dev, FIFO_CONFIG, &zeroes, 1);
-  if (ret < 0)return ret;
+  if (ret < 0)
+    {
+      nxmutex_unlock(&dev->lock);
+      return ret;
+    }
 
   dev->streaming = false;
 
@@ -931,14 +1028,22 @@ static int icm_fifo_stop(FAR struct icm_dev_s *dev)
 static int icm_fifo_isr(int irq, FAR void *context, FAR void *arg)
 {
   FAR struct icm_dev_s *dev = (FAR struct icm_dev_s *)arg;
- 
+
+  /* Must happen before returning: this driver attaches directly to the
+   * raw IRQ vector, bypassing the arch's own dispatcher that would
+   * normally clear this — skip it and the IRQ re-fires the instant this
+   * ISR returns, forever. See icm_config_s.irq_ack's doc comment.
+   */
+
+  dev->config.irq_ack();
+
   /* If work is already queued, this is a no-op — that's fine, it means
    * the previous interrupt hasn't been serviced yet and the next service
    * pass will drain everything that's accumulated since.
    */
- 
+
   work_queue(HPWORK, &dev->fifo_work, icm_fifo_worker, dev, 0);
- 
+
   return 0;
 }
  
@@ -960,12 +1065,24 @@ static int icm_fifo_isr(int irq, FAR void *context, FAR void *arg)
 static void icm_fifo_worker(FAR void *arg)
 {
   FAR struct icm_dev_s *dev = (FAR struct icm_dev_s *)arg;
-  uint8_t raw[ICM_FIFO_MAX_BYTES];
   uint16_t fifo_packets;
   uint16_t n_bytes;
   uint16_t i;
   int ret;
- 
+  static bool s_first_isr_logged = false;
+
+  if (!s_first_isr_logged)
+    {
+      /* Confirms the EXTI/NVIC chain actually delivered an interrupt and
+       * icm_fifo_isr() scheduled this worker — logged once so we know the
+       * interrupt path itself is alive, independent of whether the FIFO
+       * happens to have data by the time we get here.
+       */
+
+      syslog(LOG_INFO, "icm_fifo_worker: first watermark interrupt serviced\n");
+      s_first_isr_logged = true;
+    }
+
   nxmutex_lock(&dev->lock);
  
   /* Step 1: how much is actually in the FIFO right now? Burst-reading a
@@ -999,7 +1116,7 @@ static void icm_fifo_worker(FAR void *arg)
    */
   n_bytes = fifo_packets*ICM_FIFO_PACKET_SIZE;
  
-  ret = __icm_read_reg(dev, FIFO_DATA, raw, n_bytes);
+  ret = __icm_read_reg(dev, FIFO_DATA, dev->fifo_raw, n_bytes);
   if (ret < 0)
     {
       snerr("ERROR: FIFO burst read failed: %d\n", ret);
@@ -1017,7 +1134,7 @@ static void icm_fifo_worker(FAR void *arg)
  
   for (i = 0; i < fifo_packets; i++)
     {
-      FAR uint8_t *pkt = &raw[i * ICM_FIFO_PACKET_SIZE];
+      FAR uint8_t *pkt = &dev->fifo_raw[i * ICM_FIFO_PACKET_SIZE];
       uint8_t header = pkt[0];
       struct icm_fifo_sample_s sample;
  
@@ -1693,18 +1810,49 @@ static int icm_open(FAR struct file *filep)
   FAR struct inode *inode = filep->f_inode;
   FAR struct icm_dev_s *dev = inode->i_private;
   int ret = OK;
+  bool first_open;
+
+  /* icm_reset()/icm_fifo_start() take dev->lock themselves — this lock
+   * only protects the crefs bookkeeping, and must be released before
+   * calling them or every first open() self-deadlocks on dev->lock.
+   */
 
   nxmutex_lock(&dev->lock);
-
   dev->crefs++; // How many fds are open
+  first_open = (dev->crefs == 1);
+  nxmutex_unlock(&dev->lock);
 
-  if (dev->crefs == 1)   /* first opener — actually start the hardware */
+  if (first_open)   /* first opener — actually start the hardware */
       {
         ret = icm_reset(dev);          /* configure registers */
-        ret = icm_fifo_start(dev);     /* arm watermark + IRQ */
-      }
+        if (ret < 0)
+          {
+            syslog(LOG_ERR, "icm_open: icm_reset failed: %d\n", ret);
+          }
+        else
+          {
+            ret = icm_fifo_start(dev); /* arm watermark + IRQ */
+            if (ret < 0)
+              {
+                syslog(LOG_ERR, "icm_open: icm_fifo_start failed: %d\n", ret);
+              }
+            else
+              {
+                syslog(LOG_INFO, "icm_open: streaming armed\n");
+              }
+          }
 
-  nxmutex_unlock(&dev->lock);
+        if (ret < 0)
+          {
+            /* Don't leave crefs stuck at 1 — the next open() must retry
+             * icm_reset()/icm_fifo_start(), not silently skip them.
+             */
+
+            nxmutex_lock(&dev->lock);
+            dev->crefs--;
+            nxmutex_unlock(&dev->lock);
+          }
+      }
 
   return ret;
 }
@@ -1717,19 +1865,23 @@ static int icm_close(FAR struct file *filep)
 {
   FAR struct inode *inode = filep->f_inode;
   FAR struct icm_dev_s *dev = inode->i_private;
+  bool last_close;
+
+  /* icm_fifo_stop() takes dev->lock itself — release before calling it,
+   * same reasoning as icm_open() above.
+   */
 
   nxmutex_lock(&dev->lock);
-
   dev->crefs--;
+  last_close = (dev->crefs == 0);
+  nxmutex_unlock(&dev->lock);
 
-  if (dev->crefs == 0)   /* last closer — shut hardware down */
+  if (last_close)   /* last closer — shut hardware down */
     {
       work_cancel(HPWORK, &dev->fifo_work);  /* cancel any pending work */
       icm_fifo_stop(dev);                    /* disarm IRQ, disable FIFO */
       circbuf_reset(&dev->fifo_rb);          /* flush stale samples */
     }
-
-  nxmutex_unlock(&dev->lock);
 
   return 0;
 }

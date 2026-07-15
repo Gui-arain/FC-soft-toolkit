@@ -125,10 +125,13 @@
 #define FC_IMU2_SPIDEV  SPIDEV_IMU(1)
 
 /* IMU data-ready interrupts (INT1, push-pull active-high on the
- * ICM-42688-P). GPIO_EXTI is baked into these definitions so a single
- * stm32_gpiosetevent() call both configures the pin and routes the
- * SYSCFG EXTI mux, without attaching a handler (the driver attaches its
- * own via irq_attach()/up_enable_irq() when it starts streaming).
+ * ICM-42688-P). GPIO_EXTI is baked into these definitions so
+ * stm32_gpiosetevent() both configures the pin and routes the SYSCFG
+ * EXTI mux. It's called with a placeholder handler (see
+ * stm32_imu_int_placeholder() in stm32_spi.c) purely so it unmasks the
+ * EXTI line's own interrupt mask register — the driver then takes over
+ * the actual vector via irq_attach()/up_enable_irq() when it starts
+ * streaming.
  */
 
 #define GPIO_IMU1_INT   (GPIO_INPUT | GPIO_FLOAT | GPIO_EXTI | \
@@ -136,24 +139,6 @@
 
 #define GPIO_IMU2_INT   (GPIO_INPUT | GPIO_FLOAT | GPIO_EXTI | \
                          GPIO_PORTB | GPIO_PIN2)   /* PB2 -> STM32_IRQ_EXTI2 */
-
-/* SD Card
- *
- * PD4  Card detected pin
- */
-
-#if defined(CONFIG_STM32H7_SDMMC1)
-#  define HAVE_SDIO
-#endif
-
-#if defined(CONFIG_DISABLE_MOUNTPOINT) || !defined(CONFIG_MMCSD_SDIO)
-#  undef HAVE_SDIO
-#endif
-
-#define GPIO_SDIO_NCD     (GPIO_INPUT|GPIO_FLOAT|GPIO_EXTI|GPIO_PORTD|GPIO_PIN4) /* PD4 */
-
-#define SDIO_SLOTNO        0
-#define SDIO_MINOR         0
 
 /****************************************************************************
  * Public Function Prototypes
@@ -169,6 +154,20 @@
  ****************************************************************************/
 
 void weak_function stm32_spidev_initialize(void);
+
+/****************************************************************************
+ * Name: stm32_imu1_irq_ack / stm32_imu2_irq_ack
+ *
+ * Description:
+ *   Clear the EXTI pending bit for the ICM-42688-P IMU1/IMU2 data-ready
+ *   lines. Passed to icm42688p_register() via icm_config_s.irq_ack.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_SENSORS_ICM42688P
+void stm32_imu1_irq_ack(void);
+void stm32_imu2_irq_ack(void);
+#endif
 
 /****************************************************************************
  * Name: stm32_bringup
@@ -196,18 +195,6 @@ int stm32_bringup(void);
 
 #if defined (CONFIG_FAT_DMAMEMORY)
 int stm32_dma_alloc_init(void);
-#endif
-
-/****************************************************************************
- * Name: stm32_sdio_initialize
- *
- * Description:
- *   Initialize SDIO-based MMC/SD card support.
- *
- ****************************************************************************/
-
-#ifdef HAVE_SDIO
-int stm32_sdio_initialize(void);
 #endif
 
 #endif /* __BOARDS_ARM_STM32H7_DAKEFPV_H743_SRC_DAKEFPV_H743_H */
