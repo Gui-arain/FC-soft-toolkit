@@ -1,0 +1,133 @@
+# Pinout configuration of the STM32H743VIT6 MCU
+# This file maps the various peripherals to their corresponding GPIO pins.
+
+# Typycal descripton structure:
+# stm32<MCU_MODEL>:
+#   <PERIPHERAL_NAME>:  # <PERIPHERAL_DESCRIPTION>
+#     <SIGNAL_NAME>: <PIN_NAME> (<PIN_COMMENT>)
+#     ...
+
+# DAKEFPV_H743 board (board port: dakefpv-h743) — dual-IMU (2x ICM-42688-P) FC.
+# Derived from resources/FC-boards/DAKEFPV_H743/betaflight_config.h and
+# ChibliOS_hw_def/hwdef.dat (base DAKEFPVH743 board, not the Pro variant).
+
+stm32h743ZIT6:
+  spi1:   #IMU1 (ICM-42688-P)
+    sck:  PA5
+    miso: PA6
+    mosi: PA7
+    cs:   PA4
+
+  spi4:   #IMU2 (ICM-42688-P)
+    sck:  PE12
+    miso: PE13
+    mosi: PE14
+    cs:   PB1
+
+  spi2:   #OSD (MAX7456)
+    sck:  PB13
+    miso: PB14
+    mosi: PB15
+    cs:   PB12
+
+  spi3:   #Dataflash (M25P16)
+    sck:  PC10
+    miso: PC11
+    mosi: PC12
+    cs:   PA15
+
+  Int:  #Interrupts signals
+    imu1_int1: PC4   #IMU1 (GYRO_1) EXTI pin
+    imu2_int1: PB2   #IMU2 (GYRO_2) EXTI pin
+    imu1_clkin: PB9  #IMU1 external gyro sync clock input
+
+  usart1:   #GPS
+    tx: PA9
+    rx: PA10
+
+  usart2:   #Pad Out USART
+    tx: PD5
+    rx: PD6
+
+  usart3:   #ESC Telemetry
+    tx: PD8
+    rx: PD9
+
+  uart4:  #Pad Out UART
+    tx: PD1
+    rx: PD0
+
+  uart5:  #RC Receiver
+    tx: PB6
+    rx: PB5
+
+  usart6:   #Pad Out USART
+    tx: PC6
+    rx: PC7
+
+  uart7:  #Pad Out UART
+    tx: PE8
+    rx: PE7
+
+  uart8:  #Pad Out UART
+    tx: PE1
+    rx: PE0
+
+  i2c2:   #Barometer (BMP280/DPS310/SPL06)
+    sda: PB11
+    scl: PB10
+
+  adc1:   #Battery Voltage/Current/RSSI Sensor
+    curr: PC0   # ADC_CURR_PIN
+    vbat: PC1   # ADC_VBAT_PIN
+    rssi: PC5   # ADC_RSSI_PIN
+
+  tim2:  #Motors ESC PWM/DShot
+    ch1: PA0    # M1
+    ch2: PA1    # M2
+    ch3: PA2    # M3
+    ch4: PA3    # M4
+
+  tim4:  #Motors ESC PWM/DShot
+    ch1: PD12   # M5
+    ch2: PD13   # M6
+    ch3: PD14   # M7
+    ch4: PD15   # M8
+
+  tim15:  #Servos / Pad Out PWM
+    ch1: PE5    # S1
+    ch2: PE6    # S2
+
+  tim8:  #Servos / Pad Out PWM
+    ch3: PC8    # S3 (NODMA)
+    ch4: PC9    # S4 (NODMA)
+
+  tim1:   #LED Strip
+    ch1: PE9    # LED_STRIP_PIN
+
+  usb_otg_fs:   #USB-C
+    dm: PA11
+    dp: PA12
+
+  user_led:    #User Status LEDs
+    led0: PD10  # User LED (per CLAUDE.md)
+    led1: PD11
+    led2: PA8
+
+  camera_control:
+    pin: PB8
+
+  pinio:   #Programmable I/O (relays)
+    pinio1: PE2   # Camera switch control
+    pinio2: PE3   # VTX power control (12V BEC)
+    pinio3: PE4   # Bluetooth RF switch
+
+  buzzer:    #External Active Buzzer
+    pin: PC2
+
+  flash_cs:    #Dataflash Chip Select (also spi3.cs)
+    pin: PA15
+
+  debug:    #SWD Programming/Debugging Tag Conector
+    swdio: "PA13 (JTMS/SWDIO)"
+    swclk: "PA14 (JTCK/SWCLK)"
