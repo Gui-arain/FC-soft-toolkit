@@ -559,6 +559,16 @@ Estimator task becomes ready
 This separates interrupt latency, bus transfer, driver processing and application-level estimation.
 ### Semantics and resource sharing
 
+Sys
+
+### Messages & Logging
+
+Two ways logging is handled:
+1. `syslog()` : writes directly to the syslog channel (your configured syslog device/ramlog))
+2. `printf()` : goes through the C stdio layer with it's own buffer (printf → stdout → `/dev/console`) 
+
+These two methods are synchronous meaning they will run in the context of the caller and will wait until completion to continue. No other threads will asynchronously treat the messages.
+So it will impact real time performance of the caller thread.
 ### Booting process
 
 The NuttX initialization sequence can be divided into three broad phases:

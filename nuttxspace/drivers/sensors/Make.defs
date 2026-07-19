@@ -22,7 +22,7 @@ ifeq ($(CONFIG_SENSORS_ICM40609D),y)
 endif
 
 ifeq ($(CONFIG_SENSORS_ICM42688P),y)
-  CSRCS += icm42688p-fifo.c
+  CSRCS += icm42688p_uorb.c
 
   DEPPATH += --dep-path ../../drivers/sensors
   VPATH   += :../../drivers/sensors

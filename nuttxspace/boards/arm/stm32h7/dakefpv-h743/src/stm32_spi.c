@@ -113,7 +113,7 @@ void stm32_spidev_initialize(void)
    * required here so stm32_gpiosetevent() unmasks the EXTI line itself —
    * see stm32_imu_int_placeholder() above. The driver takes over the
    * actual vector via irq_attach()/up_enable_irq() when it starts
-   * streaming (icm_fifo_start() in icm42688p-fifo.c).
+   * streaming (icm_fifo_start() in icm42688p_uorb.c).
    */
 
   stm32_gpiosetevent(GPIO_IMU1_INT, true, false, false,

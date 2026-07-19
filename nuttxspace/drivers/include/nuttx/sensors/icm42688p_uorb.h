@@ -1,6 +1,6 @@
 
-#ifndef __INCLUDE_NUTTX_SENSORS_ICM42688P_H
-#define __INCLUDE_NUTTX_SENSORS_ICM42688P_H
+#ifndef __INCLUDE_NUTTX_SENSORS_ICM42688P_UORB_H
+#define __INCLUDE_NUTTX_SENSORS_ICM42688P_UORB_H
 
 /****************************************************************************
  * Included Files
@@ -14,21 +14,21 @@
  * IOCTL Commands
  *
  * Device-specific commands live in the 0x00B0+ range (upstream NuttX
- * sensor ioctls top out at 0x00A9 as of this writing).
- * Consumers only need to include this header — no need to touch ioctl.h.
+ * sensor ioctls top out at 0x00A9 as of this writing). Standard uORB
+ * ioctls (SNIOC_SET_INTERVAL, SNIOC_BATCH, ...) cover ODR and FIFO
+ * watermark/latency -- see <nuttx/sensors/ioctl.h>. Consumers only need
+ * to include this header for the device-specific commands below.
  ****************************************************************************/
 
 /* Set gyroscope full-scale range.  Arg: uint16_t dps (125/250/500/1000/2000) */
 
 #define ICM42688P_IOC_SET_GYRO_FSR        _SNIOC(0x00B0)
 
-/* Set accel full-scale range: ±4, ±8, ±16, ±32 g */
+/* Set accel full-scale range: ±4, ±8, ±16 g */
 
 #define ICM42688P_IOC_SET_ACCEL_FSR        _SNIOC(0x00B1)
 
-/* Set output data rate.  Arg: uint32_t Hz (500/1000/4000/8000/16000/32000) */
-
-#define ICM42688P_IOC_SET_ODR             _SNIOC(0x00B2)
+/* 0x00B2 (formerly SET_ODR) retired -- use SNIOC_SET_INTERVAL instead. */
 
 /* Set gyro digital notch filter center frequency.  Arg: uint32_t Hz */
 
@@ -39,17 +39,15 @@
 
 #define ICM42688P_IOC_SET_GYRO_DNF_BW     _SNIOC(0x00B4)
 
-/* Set FIFO watermark threshold.  Arg: uint16_t samples */
-
-#define ICM42688P_IOC_SET_WATERMARK       _SNIOC(0x00B5)
+/* 0x00B5 (formerly SET_WATERMARK) retired -- use SNIOC_BATCH instead. */
 
 /* Read-and-clear the hardware lost-packet counter.  Arg: FAR uint32_t * */
 
 #define ICM42688P_IOC_GET_LOST_PKTS       _SNIOC(0x00B6)
 
-/* Flush the software ring buffer (discard buffered samples).  Arg: none */
-
-#define ICM42688P_IOC_RESET_FIFO          _SNIOC(0x00B7)
+/* 0x00B7 (formerly RESET_FIFO) retired -- there is no software ring
+ * buffer left to flush; the uORB upper half owns the circular buffer.
+ */
 
 /* Set gyro/accel offset registers.  Arg: FAR const struct icm42688p_offset_s * */
 
@@ -100,20 +98,6 @@ struct icm42688p_offset_s
   int16_t y;
   int16_t z;
 };
-
-/****************************************************************************
- * Parsed sample — what actually goes in the ring buffer. Keep it
- * pre-converted (host byte order) rather than storing raw register bytes,
- * since the consumer shouldn't have to know the wire format.
- ****************************************************************************/
-
-begin_packed_struct struct icm_fifo_sample_s
-{
-  int16_t  accel_x, accel_y, accel_z;
-  int16_t  gyro_x, gyro_y, gyro_z;
-  int8_t   temp;          /* FIFO temp is 8-bit; see datasheet conversion */
-  uint16_t tmst;           /* raw ODR timestamp counter from FIFO */
-} end_packed_struct;
 
 /* Specifies the initial chip configuration and bus wiring.
  *
@@ -171,12 +155,18 @@ struct icm_config_s
  * Name: icm42688p_register
  *
  * Description:
- *   Registers the ICM-42688-P at devpath.
+ *   Registers an ICM-42688-P as a pair of uORB topics:
+ *   /dev/uorb/sensor_accel<devno> and /dev/uorb/sensor_gyro<devno>.
  *
- * Returns 0 on success, or negative errno.
+ * Input Parameters:
+ *   devno  - Device instance number (0, 1, ...) shared by both topics.
+ *   config - Configuration information (SPI bus + chip-select + IRQ).
+ *
+ * Returned Value:
+ *   Zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-int icm42688p_register(FAR const char *path, FAR struct icm_config_s *config);
+int icm42688p_register(int devno, FAR struct icm_config_s *config);
 
-#endif /* __INCLUDE_NUTTX_SENSORS_ICM42688P_H */
+#endif /* __INCLUDE_NUTTX_SENSORS_ICM42688P_UORB_H */

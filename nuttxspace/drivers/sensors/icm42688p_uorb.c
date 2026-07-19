@@ -1,6 +1,7 @@
 /*
-  Driver for the ICM-42688-P IMU designed for 32kHz FIFO SPI burst reading
-  ! This driver uses the legacy style of writing sensor drivers for NuttX
+  uORB driver for the ICM-42688-P IMU designed for 32kHz FIFO SPI burst
+  reading. Registers two independent uORB topics (accel, gyro) off one
+  physical chip -- see icm42688p_uorb.h for the registration entry point.
 */
 
 /****************************************************************************
@@ -12,25 +13,22 @@
 #include <errno.h>
 #include <nuttx/debug.h>
 #include <string.h>
-#include <limits.h>
+#include <stdint.h>
 #include <nuttx/bits.h>
 #include <nuttx/mutex.h>
 #include <nuttx/signal.h>
-#include <fcntl.h>
 #include <syslog.h>
 #include <nuttx/irq.h>
 #include <nuttx/arch.h>
+#include <nuttx/nuttx.h>       /* container_of() */
 
-//#include <nuttx/compiler.h> -> moved to <nuttx/sensors/icm42688p.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/spi/spi.h>
 #include <nuttx/fs/fs.h>
-#include <nuttx/sensors/icm42688p-fifo.h>
+#include <nuttx/sensors/sensor.h>
+#include <nuttx/sensors/icm42688p_uorb.h>
 
 #include <nuttx/wqueue.h>     /* work_queue() bottom half */
-#include <nuttx/circbuf.h>    /* ring buffer */
-#include <nuttx/semaphore.h>
-#include <poll.h>
 #include <math.h>
 
 /****************************************************************************
@@ -67,9 +65,7 @@
 #define ICM_FIFO_HEADER_ACCEL  BIT(6)
 #define ICM_FIFO_HEADER_GYRO   BIT(5)
 
-#define FIFO_WM_REC_TH 50 // 50 : 32kHz -> 641Hz Default watermark threshold in number of samples 
-
-#define ICM_NPOLLWAITERS       4
+#define FIFO_WM_REC_TH 50 // 50 : 32kHz -> 641Hz Default watermark threshold in number of samples
 
 /****************************************************************************
  * Private Types
@@ -488,62 +484,142 @@ enum icm_regaddr_e
   OFFSET_USER8 = 0x7F,  /* RW Bank 4 – AZ_OFF_USR[7:0]                      */
 };
 
+/* One of these per uORB topic (accel, gyro) -- shares the physical chip
+ * state in icm_dev_s via the dev back-pointer.
+ */
 
-/* Used by the driver to manage the device */
+struct icm_sens_s
+{
+  struct sensor_lowerhalf_s lower;
+  FAR struct icm_dev_s *dev;
+};
+
+/* Used by the driver to manage the shared physical chip. One physical
+ * FIFO/IRQ/ODR-register-pair is shared by both the accel and gyro
+ * uORB topics -- see icm_activate()/icm_set_interval()/icm_batch() for
+ * how the two independent topics' requests get reconciled onto this
+ * single piece of hardware.
+ */
 
 struct icm_dev_s
 {
   mutex_t lock;               /* mutex for this structure */
   struct icm_config_s config; /* board-specific information */
 
+  struct icm_sens_s accel;
+  struct icm_sens_s gyro;
+
   /* --- IMU configurations --- */
   uint8_t gyro_odr;           /* gyro output data rate selector */
   uint8_t accel_odr;          /* accel output data rate selector */
-  uint8_t acc_fs_sel;            /* full scale range of the accelerometer */
-  uint8_t gyro_fs_sel;            /* full scale range of the gyro */
+  uint8_t acc_fs_sel;         /* full scale range of the accelerometer */
+  uint8_t gyro_fs_sel;        /* full scale range of the gyro */
   uint8_t dnf_config;         /* digital notch filter configuration */
   uint8_t daaf_config;        /* digital anti aliasing filter configuration */
   bool dnf_active;
   bool aaf_active;
-  float sample_rate;          /* current sample rate */
-  //bool fifo_enabled;          /* current enable state of FIFO buffer */ -> always enabled in this version
-  
-  /* --- IRQ-driven FIFO streaming --- */
-  struct circbuf_s     fifo_rb;        /* ring buffer of icm_fifo_sample_s */
-  sem_t                rb_sem;         /* protects fifo_rb (NOT dev->lock) */
-  struct work_s        fifo_work;      /* work_queue() job token */
+  float accel_scale;          /* m/s^2 per LSB, current acc_fs_sel */
+  float gyro_scale;           /* rad/s per LSB, current gyro_fs_sel */
+  float sample_rate;          /* current shared ODR, Hz */
+  uint32_t sample_period_us;  /* current shared ODR, us (1e6 / sample_rate) */
 
-  /* Burst-read scratch buffer for icm_fifo_worker(). ICM_FIFO_MAX_BYTES
-   * (2080) alone exceeds the default HPWORK stack
-   * (CONFIG_SCHED_HPWORKSTACKSIZE, commonly 2048) — this must live off
-   * the worker's stack, not as a local. Only ever touched from
-   * icm_fifo_worker(), which runs one job at a time on HPWORK.
+  /* --- shared activation across the two topics --- */
+  int refcount;                /* accel active? + gyro active?, 0..2 */
+  bool streaming;               /* true once FIFO+IRQ both armed */
+
+  /* --- per-topic requests, reconciled onto the one physical FIFO --- */
+  uint32_t accel_period_us;    /* last period requested via accel set_interval() */
+  uint32_t gyro_period_us;     /* last period requested via gyro set_interval()  */
+  uint32_t accel_latency_us;   /* last latency requested via accel batch(), 0=unset */
+  uint32_t gyro_latency_us;    /* last latency requested via gyro batch(), 0=unset  */
+  uint16_t watermark_samples;  /* currently programmed shared FIFO watermark */
+
+  /* --- IRQ-driven FIFO streaming --- */
+  struct work_s        fifo_work;      /* work_queue() job token */
+  uint64_t              isr_timestamp_us; /* wall-clock anchor, captured in ISR */
+
+  /* Burst-read/parse scratch. ICM_FIFO_MAX_BYTES (2080) alone exceeds
+   * the default HPWORK stack (CONFIG_SCHED_HPWORKSTACKSIZE, commonly
+   * 2048) — these must live off the worker's stack, not as locals.
+   * Only ever touched from icm_fifo_worker(), which runs one job at a
+   * time on HPWORK.
    */
 
   uint8_t              fifo_raw[ICM_FIFO_MAX_BYTES];
-  FAR struct pollfd   *fds[ICM_NPOLLWAITERS];
-  uint16_t             watermark_samples; // Configures the watermark threshold after which the IMU will trigger an interrupt
-  bool                 streaming;     /* true once FIFO+IRQ both armed */
-  int                  crefs;          // Tracks how many fds are open
+  struct sensor_accel  accel_burst[ICM_FIFO_MAX_RECS];
+  struct sensor_gyro   gyro_burst[ICM_FIFO_MAX_RECS];
+};
+
+/* Maps a requested ODR period (us) to the nearest supported hardware
+ * rate. Ordered fastest (smallest period) to slowest (largest period).
+ */
+
+struct icm_odr_entry_s
+{
+  uint32_t period_us;
+  uint32_t hz;
+  uint8_t  odr_sel;
+};
+
+static const struct icm_odr_entry_s g_icm_odr_map[] =
+{
+  { 31,   32000, 0x01 },
+  { 63,   16000, 0x02 },
+  { 125,  8000,  0x03 },
+  { 250,  4000,  0x04 },
+  { 500,  2000,  0x05 },
+  { 1000, 1000,  0x06 },
+  { 2000, 500,   0x0f },
+};
+
+#define ICM_NUM_ODR (sizeof(g_icm_odr_map) / sizeof(g_icm_odr_map[0]))
+
+/* Accel/gyro raw-LSB-to-physical-unit scale factors, indexed by the
+ * chip's ACCEL_FS_SEL / GYRO_FS_SEL selector values (see
+ * icm_set_accel_fsr()/icm_set_gyro_fsr()).
+ */
+
+static const float g_icm_accel_scale[] =   /* m/s^2 per LSB */
+{
+  16.0f * 9.80665f / 32768.0f,  /* sel 0: +-16g */
+  8.0f  * 9.80665f / 32768.0f,  /* sel 1: +-8g  */
+  4.0f  * 9.80665f / 32768.0f,  /* sel 2: +-4g  */
+  2.0f  * 9.80665f / 32768.0f,  /* sel 3: +-2g  */
+};
+
+static const float g_icm_gyro_scale[] =    /* rad/s per LSB */
+{
+  2000.0f * (float)M_PI / 180.0f / 32768.0f,  /* sel 0: +-2000dps */
+  1000.0f * (float)M_PI / 180.0f / 32768.0f,  /* sel 1: +-1000dps */
+  500.0f  * (float)M_PI / 180.0f / 32768.0f,  /* sel 2: +-500dps  */
+  250.0f  * (float)M_PI / 180.0f / 32768.0f,  /* sel 3: +-250dps  */
+  125.0f  * (float)M_PI / 180.0f / 32768.0f,  /* sel 4: +-125dps  */
 };
 
 /****************************************************************************
- * Private Function Function Prototypes
+ * Private Function Prototypes
  ****************************************************************************/
 
-static int icm_open(FAR struct file *filep);
-static int icm_close(FAR struct file *filep);
-static ssize_t icm_read(FAR struct file *filep, FAR char *buf, size_t len);
-static int icm_poll(FAR struct file *filep, FAR struct pollfd *fds, bool setup);
-static int icm_ioctl(FAR struct file *filep, int cmd, unsigned long arg);
+static int icm_activate(FAR struct sensor_lowerhalf_s *lower,
+                        FAR struct file *filep, bool enable);
+static int icm_set_interval(FAR struct sensor_lowerhalf_s *lower,
+                            FAR struct file *filep,
+                            FAR uint32_t *period_us);
+static int icm_batch(FAR struct sensor_lowerhalf_s *lower,
+                     FAR struct file *filep,
+                     FAR uint32_t *latency_us);
+static int icm_control(FAR struct sensor_lowerhalf_s *lower,
+                       FAR struct file *filep, int cmd, unsigned long arg);
 
 static int icm_fifo_isr(int irq, FAR void *context, FAR void *arg);
 static void icm_fifo_worker(FAR void *arg);
+static int icm_fifo_start(FAR struct icm_dev_s *dev);
+static int icm_fifo_stop(FAR struct icm_dev_s *dev);
 
 static int icm_set_gyro_fsr(FAR struct icm_dev_s *dev, uint16_t dps);
 static int icm_set_accel_fsr(FAR struct icm_dev_s *dev, uint16_t g);
-static int icm_set_odr(FAR struct icm_dev_s *dev, uint32_t hz);
-static int icm_set_watermark(FAR struct icm_dev_s *dev, uint16_t samples);
+static int icm_program_odr(FAR struct icm_dev_s *dev, uint32_t period_us);
+static int icm_program_watermark(FAR struct icm_dev_s *dev, uint16_t samples);
 static int icm_get_lost_packets(FAR struct icm_dev_s *dev, FAR uint32_t *count);
 static int icm_set_gyro_dnf_freq(FAR struct icm_dev_s *dev, uint32_t hz);
 static int icm_set_gyro_dnf_bandwidth(FAR struct icm_dev_s *dev, uint32_t hz);
@@ -560,18 +636,15 @@ static int icm_set_gyro_ui_filt_bw(FAR struct icm_dev_s *dev, uint8_t bw);
 static int icm_set_accel_ui_filt_bw(FAR struct icm_dev_s *dev, uint8_t bw);
 
 /****************************************************************************
- * Struct containing our function pointers so that NuttX VFS
- * can call them when a syscall is made in a user task
+ * Private Data
  ****************************************************************************/
 
-static const struct file_operations g_icm_fops =
+static const struct sensor_ops_s g_icm_ops =
 {
-  .open  = icm_open,
-  .close = icm_close,
-  .read  = icm_read,    /* ← called by NuttX when userspace calls read()  */
-  .poll  = icm_poll,    /* ← called by NuttX when userspace calls poll()  */
-  .write = NULL,
-  .ioctl = icm_ioctl,
+  .activate     = icm_activate,
+  .set_interval = icm_set_interval,
+  .batch        = icm_batch,
+  .control      = icm_control,
 };
 
 /* __icm_read_reg(), but for SPI-connected devices. See that function
@@ -593,8 +666,8 @@ static int __icm_read_reg_spi(FAR struct icm_dev_s *dev, enum icm_regaddr_e reg_
    */
 
   SPI_LOCK(spi, true);
-  SPI_SETMODE(spi, SPIDEV_MODE0); //CPOL = 0 (Low), CPHA = 0 (1 Edge)
-  SPI_SETFREQUENCY(spi, ICM_SPI_FREQ); 
+  SPI_SETMODE(spi, SPIDEV_MODE3); //CPOL = 1 (High), CPHA = 1 (2 Edges)
+  SPI_SETFREQUENCY(spi, ICM_SPI_FREQ);
 
 
   /* Select the chip. */
@@ -635,7 +708,7 @@ static int __icm_write_reg_spi(FAR struct icm_dev_s *dev, enum icm_regaddr_e reg
   /* Grab and configure the SPI master device. */
 
   SPI_LOCK(spi, true);
-  SPI_SETMODE(spi, SPIDEV_MODE0); //CPOL = 0 (Low), CPHA = 0 (1 Edge)
+  SPI_SETMODE(spi, SPIDEV_MODE3); //CPOL = 1 (High), CPHA = 1 (2 Edges)
   SPI_SETFREQUENCY(spi, ICM_SPI_FREQ); // SPI frequency set to 2MHz (based on clock config)
 
   /* Select the chip. */
@@ -761,7 +834,7 @@ static int __icm_read_fifo_count(FAR struct icm_dev_s *dev, u_int16_t *fifo_byte
  * Resets the IMU signal path / FIFO buffer
  * Configures the little-endian convention
  * Turn Gyro and Accel back on (in Low Noise mode)
- * 
+ *
  ****************************************************************************/
 
 static int icm_reset(FAR struct icm_dev_s *dev)
@@ -770,7 +843,7 @@ static int icm_reset(FAR struct icm_dev_s *dev)
 
   /* Signal reset handling:
    * SIGNAL_PATH_RESET__ABORT_AND_RESET = 1     => Reset the entire signal path
-   * SIGNAL_PATH_RESET__TMST_STROBE = 0       
+   * SIGNAL_PATH_RESET__TMST_STROBE = 0
    * SIGNAL_PATH_RESET__FIFO_FLUSH = 1          => Flush FIFO buffer
    */
   const uint8_t signal_path_reset = SIGNAL_PATH_RESET__ABORT_AND_RESET |SIGNAL_PATH_RESET__FIFO_FLUSH ;
@@ -863,12 +936,90 @@ static int icm_reset(FAR struct icm_dev_s *dev)
 }
 
 /****************************************************************************
+ * icm_program_watermark()
+ *
+ * Writes the FIFO watermark threshold registers and updates
+ * dev->watermark_samples. Caller must hold dev->lock. This backs both
+ * icm_fifo_start() (initial/current value) and icm_batch() (live
+ * reprogramming while streaming, no restart needed).
+ ****************************************************************************/
+
+static int icm_program_watermark(FAR struct icm_dev_s *dev, uint16_t samples)
+{
+  uint8_t wm[2];
+
+  wm[0] = (uint8_t)(samples & 0xff);
+  wm[1] = (uint8_t)((samples >> 8) & 0x0f);
+
+  dev->watermark_samples = samples;
+  return __icm_write_reg(dev, FIFO_CONFIG2, wm, 2);
+}
+
+/****************************************************************************
+ * icm_program_odr()
+ *
+ * Snaps @period_us to the nearest supported hardware rate (never
+ * slower than requested) and writes it to both GYRO_CONFIG0 and
+ * ACCEL_CONFIG0 (one shared ODR field pair drives both sensor paths).
+ * Updates dev->{gyro,accel}_odr and dev->sample_rate/sample_period_us.
+ * Caller must hold dev->lock.
+ ****************************************************************************/
+
+static int icm_program_odr(FAR struct icm_dev_s *dev, uint32_t period_us)
+{
+  uint8_t greg, areg;
+  int ret;
+  size_t i;
+
+  for (i = ICM_NUM_ODR - 1; i > 0; i--)
+    {
+      if (period_us >= g_icm_odr_map[i].period_us)
+        {
+          break;
+        }
+    }
+
+  ret = __icm_read_reg(dev, GYRO_CONFIG0, &greg, 1);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  greg = (uint8_t)((greg & ~(0x0fu << GYRO_CONFIG0__GYRO_ODR__SHIFT)) |
+                   ((g_icm_odr_map[i].odr_sel & 0x0fu) << GYRO_CONFIG0__GYRO_ODR__SHIFT));
+  ret = __icm_write_reg(dev, GYRO_CONFIG0, &greg, 1);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  ret = __icm_read_reg(dev, ACCEL_CONFIG0, &areg, 1);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  areg = (uint8_t)((areg & ~(0x0fu << ACCEL_CONFIG0__ACCEL_ODR__SHIFT)) |
+                   ((g_icm_odr_map[i].odr_sel & 0x0fu) << ACCEL_CONFIG0__ACCEL_ODR__SHIFT));
+  ret = __icm_write_reg(dev, ACCEL_CONFIG0, &areg, 1);
+  if (ret >= 0)
+    {
+      dev->gyro_odr         = g_icm_odr_map[i].odr_sel;
+      dev->accel_odr        = g_icm_odr_map[i].odr_sel;
+      dev->sample_rate      = (float)g_icm_odr_map[i].hz;
+      dev->sample_period_us = g_icm_odr_map[i].period_us;
+    }
+
+  return ret;
+}
+
+/****************************************************************************
  * icm_fifo_start()
  *
  * Configure the required FIFO registers
- * Attach and enable the watermark interrupt and 
+ * Attach and enable the watermark interrupt and
  * ties it to our interrupt handling function
- * 
+ *
  ****************************************************************************/
 
 static int icm_fifo_start(FAR struct icm_dev_s *dev)
@@ -886,7 +1037,7 @@ static int icm_fifo_start(FAR struct icm_dev_s *dev)
    */
   const uint8_t tmst_config = TMST_CONFIG__TMST_RES | TMST_CONFIG__TMST_EN;
 
-  /* FIFO configuration: 
+  /* FIFO configuration:
    * FIFO_CONFIG1__FIFO_RESUME_PARTIAL_RD = 1   => enables to read only a part of the buffer
    * FIFO_CONFIG1__FIFO_WM_GT_TH = 1            => enables the trigger when reaching the watermark
    * FIFO_CONFIG1__FIFO_TMST_FSYNC_EN = 0       => we don't use the FSYNC feature (no external sync trigger)
@@ -894,24 +1045,14 @@ static int icm_fifo_start(FAR struct icm_dev_s *dev)
    * FIFO_CONFIG1__FIFO_GYRO_EN = 1
    * FIFO_CONFIG1__FIFO_ACCEL_EN = 1
    */
-  const uint8_t fifo_config1 = FIFO_CONFIG1__FIFO_RESUME_PARTIAL_RD | FIFO_CONFIG1__FIFO_WM_GT_TH | 
-                               FIFO_CONFIG1__FIFO_TEMP_EN |FIFO_CONFIG1__FIFO_GYRO_EN | FIFO_CONFIG1__FIFO_ACCEL_EN; 
-  
-  // Watermark threshold config based on the default setting
-  dev->watermark_samples = FIFO_WM_REC_TH;
+  const uint8_t fifo_config1 = FIFO_CONFIG1__FIFO_RESUME_PARTIAL_RD | FIFO_CONFIG1__FIFO_WM_GT_TH |
+                               FIFO_CONFIG1__FIFO_TEMP_EN |FIFO_CONFIG1__FIFO_GYRO_EN | FIFO_CONFIG1__FIFO_ACCEL_EN;
 
-  const uint8_t fifo_config2 = (uint8_t)(FIFO_WM_REC_TH & 0xff);
-  const uint8_t fifo_config3 = (uint8_t)((FIFO_WM_REC_TH >> 8) & 0xff);
-  
   /* Interrupt output 1 configuration
    * INT_SOURCE0__FIFO_THS_INT1_EN = 1        => configure INT1 on the FIFO watermark threshold
    * INT_SOURCE0__FIFO_FULL_INT1_EN = 0       => we don't trigger on full FIFO
    */
   const uint8_t int_source0 = INT_SOURCE0__FIFO_THS_INT1_EN;
-
-  /* These registers are next to each other in bank 0
-     This allows reducing the number of times we call __icm_write_reg() */ 
-  const uint8_t fifo_config123[3] = {fifo_config1, fifo_config2, fifo_config3};
 
   nxmutex_lock(&dev->lock);
 
@@ -929,7 +1070,21 @@ static int icm_fifo_start(FAR struct icm_dev_s *dev)
       return ret;
     }
 
-  ret = __icm_write_reg(dev, FIFO_CONFIG1, fifo_config123, 3);
+  ret = __icm_write_reg(dev, FIFO_CONFIG1, &fifo_config1, 1);
+  if (ret < 0)
+    {
+      nxmutex_unlock(&dev->lock);
+      return ret;
+    }
+
+  /* Program whatever watermark is currently in effect -- either the
+   * driver-default set at registration, or a value already requested
+   * live via icm_batch() before this (re)activation. Don't reset it
+   * back to a hardcoded default here: the other topic may depend on
+   * a watermark it already negotiated.
+   */
+
+  ret = icm_program_watermark(dev, dev->watermark_samples);
   if (ret < 0)
     {
       nxmutex_unlock(&dev->lock);
@@ -960,8 +1115,8 @@ static int icm_fifo_start(FAR struct icm_dev_s *dev)
  * icm_fifo_stop()
  *
  * Disarm the FIFO and IRQ
- * 
- * 
+ *
+ *
  ****************************************************************************/
 
 static int icm_fifo_stop(FAR struct icm_dev_s *dev)
@@ -1018,13 +1173,15 @@ static int icm_fifo_stop(FAR struct icm_dev_s *dev)
  * GPIO IRQ implementation). MUST NOT perform SPI transactions — most
  * NuttX SPI drivers are not safe to call from hard-IRQ context, and even
  * if they were, you don't want SPI bus arbitration latency inside an ISR.
- * 
- * Note: This interrupt will be triggered byt the FIFO watermark interrupt, 
+ *
+ * Note: This interrupt will be triggered byt the FIFO watermark interrupt,
  * once the bytes in FIFO > Water mark count
  *
- * Just schedule the bottom half and get out.
+ * Captures the wall-clock anchor used to reconstruct per-sample
+ * timestamps (see icm_fifo_worker()), then schedules the bottom half
+ * and gets out.
  ****************************************************************************/
- 
+
 static int icm_fifo_isr(int irq, FAR void *context, FAR void *arg)
 {
   FAR struct icm_dev_s *dev = (FAR struct icm_dev_s *)arg;
@@ -1037,6 +1194,14 @@ static int icm_fifo_isr(int irq, FAR void *context, FAR void *arg)
 
   dev->config.irq_ack();
 
+  /* Anchor for the per-sample timestamp reconstruction done in
+   * icm_fifo_worker() -- captured here, as close as possible to the
+   * moment the watermark condition actually latched in hardware, to
+   * minimize the jitter that HPWORK scheduling latency would add.
+   */
+
+  dev->isr_timestamp_us = sensor_get_timestamp();
+
   /* If work is already queued, this is a no-op — that's fine, it means
    * the previous interrupt hasn't been serviced yet and the next service
    * pass will drain everything that's accumulated since.
@@ -1046,7 +1211,7 @@ static int icm_fifo_isr(int irq, FAR void *context, FAR void *arg)
 
   return 0;
 }
- 
+
 /****************************************************************************
  * icm_fifo_worker()
  *
@@ -1057,18 +1222,26 @@ static int icm_fifo_isr(int irq, FAR void *context, FAR void *arg)
  *   1. Read FIFO_COUNTH/L to find out how many bytes are waiting.
  *   2. Single burst SPI read of that many bytes from FIFO_DATA.
  *   3. Walk the burst buffer in ICM_FIFO_PACKET_SIZE strides, parsing
- *      each packet's header + payload.
- *   4. Push parsed samples into the ring buffer.
- *   5. Wake any blocked reader / poll() waiters.
+ *      each packet's header + payload into sensor_accel/sensor_gyro
+ *      arrays (physical units, FSR-scaled).
+ *   4. Reconstruct each sample's timestamp from the ISR wall-clock
+ *      anchor and the FIFO's own tmst counter deltas.
+ *   5. Push the whole burst to each uORB topic in one push_event()
+ *      call -- the upper half fans it out to every subscriber at
+ *      their own decimated rate.
  ****************************************************************************/
- 
+
 static void icm_fifo_worker(FAR void *arg)
 {
   FAR struct icm_dev_s *dev = (FAR struct icm_dev_s *)arg;
   uint16_t fifo_packets;
   uint16_t n_bytes;
+  uint16_t n_valid;
   uint16_t i;
   int ret;
+  float accel_scale;
+  float gyro_scale;
+  uint64_t base_ts;
   static bool s_first_isr_logged = false;
 
   if (!s_first_isr_logged)
@@ -1084,19 +1257,19 @@ static void icm_fifo_worker(FAR void *arg)
     }
 
   nxmutex_lock(&dev->lock);
- 
+
   /* Step 1: how much is actually in the FIFO right now? Burst-reading a
    * fixed/maximal size every time wastes SPI bandwidth and time you don't
    * have at 32kHz — read the count first, then read exactly that much.
    */
- 
+
   ret = __icm_read_fifo_count(dev, &fifo_packets);
   if (ret < 0 || fifo_packets == 0)
     {
-      nxmutex_unlock(&dev->lock);   // If no packets available in FIFO or an error occured we end the worker 
+      nxmutex_unlock(&dev->lock);   // If no packets available in FIFO or an error occured we end the worker
       return;
     }
- 
+
   if (fifo_packets > ICM_FIFO_MAX_RECS)
     {
       /* Shouldn't happen given the datasheet's storage ceiling — if it
@@ -1104,18 +1277,18 @@ static void icm_fifo_worker(FAR void *arg)
        * sizing) is wrong. Clamp and flag rather than overrun the stack
        * buffer.
        */
- 
+
       snerr("ERROR: FIFO count %u exceeds expected max %u — check watermark/latency budget\n",
             fifo_packets, ICM_FIFO_MAX_RECS);
       fifo_packets = ICM_FIFO_MAX_RECS;
     }
- 
+
   /* Step 2: ONE burst SPI transaction for everything waiting. This is the
    * part that actually gives you the throughput to keep up with 32kHz —
    * not the interrupt model alone.
    */
   n_bytes = fifo_packets*ICM_FIFO_PACKET_SIZE;
- 
+
   ret = __icm_read_reg(dev, FIFO_DATA, dev->fifo_raw, n_bytes);
   if (ret < 0)
     {
@@ -1123,21 +1296,27 @@ static void icm_fifo_worker(FAR void *arg)
       nxmutex_unlock(&dev->lock);
       return;
     }
- 
+
+  accel_scale = dev->accel_scale;
+  gyro_scale  = dev->gyro_scale;
+  base_ts     = dev->isr_timestamp_us;
+
   nxmutex_unlock(&dev->lock);
- 
-  /* Step 3+4: parse and push. Done outside dev->lock since this only
-   * touches the ring buffer (guarded by its own rb_sem), not the chip.
+
+  /* Step 3: parse every packet (accel+gyro always paired per record)
+   * into physical-unit samples. Done outside dev->lock since this only
+   * touches the per-worker scratch arrays, not the chip.
    */
- 
-  nxsem_wait_uninterruptible(&dev->rb_sem);
- 
+
+  n_valid = 0;
+
   for (i = 0; i < fifo_packets; i++)
     {
       FAR uint8_t *pkt = &dev->fifo_raw[i * ICM_FIFO_PACKET_SIZE];
       uint8_t header = pkt[0];
-      struct icm_fifo_sample_s sample;
- 
+      int16_t raw;
+      float temp_c;
+
       if (header & ICM_FIFO_HEADER_MSG)
         {
           /* Empty-FIFO padding marker — datasheet §6.2. Stop here; no
@@ -1145,10 +1324,10 @@ static void icm_fifo_worker(FAR void *arg)
            * should be (count and content can race against the live
            * FIFO write pointer).
            */
- 
+
           break;
         }
- 
+
       if (!(header & ICM_FIFO_HEADER_ACCEL) || !(header & ICM_FIFO_HEADER_GYRO))
         {
           /* We configured the FIFO for combined accel+gyro packets only.
@@ -1156,46 +1335,89 @@ static void icm_fifo_worker(FAR void *arg)
            * SPI transaction — don't silently misinterpret the remaining
            * bytes as if alignment is still good.
            */
- 
+
           snerr("ERROR: Unexpected FIFO header 0x%02x at packet %u/%u — aborting parse, dropping rest of this burst\n",
                 header, i, fifo_packets);
           break;
         }
- 
-      sample.accel_x = (int16_t)((pkt[1] << 8) | pkt[2]);
-      sample.accel_y = (int16_t)((pkt[3] << 8) | pkt[4]);
-      sample.accel_z = (int16_t)((pkt[5] << 8) | pkt[6]);
-      sample.gyro_x  = (int16_t)((pkt[7] << 8) | pkt[8]);
-      sample.gyro_y  = (int16_t)((pkt[9] << 8) | pkt[10]);
-      sample.gyro_z  = (int16_t)((pkt[11] << 8) | pkt[12]);
-      sample.temp    = (int8_t)pkt[13];
-      sample.tmst    = (uint16_t)((pkt[14] << 8) | pkt[15]);
- 
-      ret = circbuf_write(&dev->fifo_rb, &sample, sizeof(sample));
-      if (ret != sizeof(sample))
-        {
-          /* Ring buffer full — consumer isn't draining fast enough.
-           * Decide deliberately whether you want overwrite-oldest or
-           * drop-newest semantics here; circbuf's default behavior on a
-           * full, non-overwriting buffer is to reject the write, which
-           * is what's shown. Silently losing samples either way means
-           * your consumer-side budget is the next thing to fix.
-           */
- 
-          snwarn("WARNING: ring buffer full, dropping FIFO sample "
-                 "(tmst=%u)\n", sample.tmst);
-        }
+
+      raw = (int16_t)((pkt[1] << 8) | pkt[2]);
+      dev->accel_burst[n_valid].x = (float)raw * accel_scale;
+      raw = (int16_t)((pkt[3] << 8) | pkt[4]);
+      dev->accel_burst[n_valid].y = (float)raw * accel_scale;
+      raw = (int16_t)((pkt[5] << 8) | pkt[6]);
+      dev->accel_burst[n_valid].z = (float)raw * accel_scale;
+
+      raw = (int16_t)((pkt[7] << 8) | pkt[8]);
+      dev->gyro_burst[n_valid].x = (float)raw * gyro_scale;
+      raw = (int16_t)((pkt[9] << 8) | pkt[10]);
+      dev->gyro_burst[n_valid].y = (float)raw * gyro_scale;
+      raw = (int16_t)((pkt[11] << 8) | pkt[12]);
+      dev->gyro_burst[n_valid].z = (float)raw * gyro_scale;
+
+      temp_c = (float)(int8_t)pkt[13] / 2.07f + 25.0f;
+      dev->accel_burst[n_valid].temperature = temp_c;
+      dev->gyro_burst[n_valid].temperature  = temp_c;
+
+      n_valid++;
     }
- 
-  nxsem_post(&dev->rb_sem);
- 
-  /* Step 5: wake anyone blocked in read() or poll(). */
- 
-  poll_notify(dev->fds, ICM_NPOLLWAITERS, POLLIN);
+
+  if (n_valid == 0)
+    {
+      return;
+    }
+
+  /* Step 4: per-sample timestamp reconstruction. Anchor the LAST valid
+   * sample to the wall-clock time captured in the ISR, then walk
+   * backward using the FIFO's own tmst counter for inter-sample
+   * spacing. tmst is a 16-bit, 1us-resolution, free-running counter
+   * (TMST_RES set, TMST_DELTA_EN clear in icm_fifo_start()) -- it has
+   * no relationship to the OS clock domain, only to itself, so it
+   * can't populate `timestamp` directly. It wraps every 65536us; at the
+   * slowest supported ODR (500Hz = 2ms/sample) a full watermark burst
+   * can span more than one wrap, so deltas MUST be computed between
+   * ADJACENT samples only (each gap is at most one ODR period, always
+   * far inside the wrap window) and accumulated -- never as a single
+   * first-vs-last subtraction across the whole burst, which would
+   * alias across a multi-wrap span.
+   */
+
+  {
+    uint64_t ts = base_ts;
+    int j;
+
+    dev->accel_burst[n_valid - 1].timestamp = ts;
+    dev->gyro_burst[n_valid - 1].timestamp  = ts;
+
+    for (j = (int)n_valid - 2; j >= 0; j--)
+      {
+        FAR uint8_t *pkt_next = &dev->fifo_raw[(j + 1) * ICM_FIFO_PACKET_SIZE];
+        FAR uint8_t *pkt_this = &dev->fifo_raw[j * ICM_FIFO_PACKET_SIZE];
+        uint16_t tmst_next = (uint16_t)((pkt_next[14] << 8) | pkt_next[15]);
+        uint16_t tmst_this = (uint16_t)((pkt_this[14] << 8) | pkt_this[15]);
+        uint16_t delta_ticks = (uint16_t)(tmst_next - tmst_this);
+
+        ts -= delta_ticks;   /* TMST_RES=1 => 1 tick = 1 us */
+
+        dev->accel_burst[j].timestamp = ts;
+        dev->gyro_burst[j].timestamp  = ts;
+      }
+  }
+
+  /* Step 5: push the whole burst to each topic in one call -- the
+   * upper half fans it out to every subscriber at their own decimated
+   * rate (see icm42688p_uorb.c design notes / sensor_push_event()).
+   */
+
+  dev->accel.lower.push_event(dev->accel.lower.priv, dev->accel_burst,
+                              n_valid * sizeof(struct sensor_accel));
+
+  dev->gyro.lower.push_event(dev->gyro.lower.priv, dev->gyro_burst,
+                             n_valid * sizeof(struct sensor_gyro));
 }
 
 /****************************************************************************
- * Configuration helper functions (called from icm_ioctl)
+ * Configuration helper functions (called from icm_control)
  ****************************************************************************/
 
 static int icm_set_gyro_fsr(FAR struct icm_dev_s *dev, uint16_t dps)
@@ -1222,6 +1444,11 @@ static int icm_set_gyro_fsr(FAR struct icm_dev_s *dev, uint16_t dps)
   reg = (uint8_t)((reg & ~(0x07u << GYRO_CONFIG0__GYRO_FS_SEL__SHIFT)) |
                   ((fsr_sel & 0x07u) << GYRO_CONFIG0__GYRO_FS_SEL__SHIFT));
   ret = __icm_write_reg(dev, GYRO_CONFIG0, &reg, 1);
+  if (ret >= 0)
+    {
+      dev->gyro_fs_sel = fsr_sel;
+      dev->gyro_scale  = g_icm_gyro_scale[fsr_sel];
+    }
 
 out:
   nxmutex_unlock(&dev->lock);
@@ -1253,73 +1480,12 @@ static int icm_set_accel_fsr(FAR struct icm_dev_s *dev, uint16_t g)
   ret = __icm_write_reg(dev, ACCEL_CONFIG0, &reg, 1);
   if (ret >= 0)
     {
-      dev->acc_fs_sel = fsr_sel;
+      dev->acc_fs_sel  = fsr_sel;
+      dev->accel_scale = g_icm_accel_scale[fsr_sel];
     }
 
 out:
   nxmutex_unlock(&dev->lock);
-  return ret;
-}
-
-static int icm_set_odr(FAR struct icm_dev_s *dev, uint32_t hz)
-{
-  uint8_t odr_sel;
-  uint8_t greg, areg;
-  int ret;
-
-  switch (hz)
-    {
-      case 32000: odr_sel = 0x01; break;
-      case 16000: odr_sel = 0x02; break;
-      case 8000:  odr_sel = 0x03; break;
-      case 4000:  odr_sel = 0x04; break;
-      case 2000:  odr_sel = 0x05; break;
-      case 1000:  odr_sel = 0x06; break;
-      case 500:   odr_sel = 0x0f; break;
-      default:    return -EINVAL;
-    }
-
-  nxmutex_lock(&dev->lock);
-
-  ret = __icm_read_reg(dev, GYRO_CONFIG0, &greg, 1);
-  if (ret < 0) goto out;
-
-  greg = (uint8_t)((greg & ~(0x0fu << GYRO_CONFIG0__GYRO_ODR__SHIFT)) |
-                   ((odr_sel & 0x0fu) << GYRO_CONFIG0__GYRO_ODR__SHIFT));
-  ret = __icm_write_reg(dev, GYRO_CONFIG0, &greg, 1);
-  if (ret < 0) goto out;
-
-  ret = __icm_read_reg(dev, ACCEL_CONFIG0, &areg, 1);
-  if (ret < 0) goto out;
-
-  areg = (uint8_t)((areg & ~(0x0fu << ACCEL_CONFIG0__ACCEL_ODR__SHIFT)) |
-                   ((odr_sel & 0x0fu) << ACCEL_CONFIG0__ACCEL_ODR__SHIFT));
-  ret = __icm_write_reg(dev, ACCEL_CONFIG0, &areg, 1);
-  if (ret >= 0)
-    {
-      dev->gyro_odr    = odr_sel;
-      dev->accel_odr   = odr_sel;
-      dev->sample_rate = (float)hz;
-    }
-
-out:
-  nxmutex_unlock(&dev->lock);
-  return ret;
-}
-
-static int icm_set_watermark(FAR struct icm_dev_s *dev, uint16_t samples)
-{
-  int ret;
-  uint8_t wm[2];
-
-  wm[0] = (uint8_t)(samples & 0xff);
-  wm[1] = (uint8_t)((samples >> 8) & 0x0f);
-
-  nxmutex_lock(&dev->lock);
-  dev->watermark_samples = samples;
-  ret = __icm_write_reg(dev, FIFO_CONFIG2, wm, 2);
-  nxmutex_unlock(&dev->lock);
-
   return ret;
 }
 
@@ -1788,229 +1954,248 @@ out:
 }
 
 /****************************************************************************
- * ////////////////// FUNCTIONS CALLED THROUGH SYSCALLS //////////////////
+ * //////////////////// uORB sensor_ops_s callbacks ////////////////////
  ****************************************************************************/
 
 /****************************************************************************
- * Name: icm_open
+ * Name: icm_activate
  *
- * Note: we don't deal with multiple users trying to access this interface at
- * the same time. Until further notice, don't do that.
- *
- * And no, it's not as simple as just prohibiting concurrent opens or
- * reads with a mutex: there are legit reasons for truy concurrent
- * access, but they must be treated carefully in this interface lest a
- * partial reader end up with a mixture of old and new samples. This
- * will make some users unhappy.
+ * Description:
+ *   Called by the uORB upper half on each topic's own 0->1 (enable) and
+ *   1->0 (disable) subscriber-count transition. Since accel and gyro
+ *   share one physical FIFO/IRQ, dev->refcount tracks how many of the
+ *   two topics are currently active: the hardware is armed on the
+ *   combined count's 0->1 transition and disarmed on its 1->0
+ *   transition, so streaming stays alive as long as EITHER topic has a
+ *   subscriber.
  *
  ****************************************************************************/
 
-static int icm_open(FAR struct file *filep)
+static int icm_activate(FAR struct sensor_lowerhalf_s *lower,
+                        FAR struct file *filep, bool enable)
 {
-  FAR struct inode *inode = filep->f_inode;
-  FAR struct icm_dev_s *dev = inode->i_private;
+  FAR struct icm_sens_s *sens = container_of(lower, struct icm_sens_s, lower);
+  FAR struct icm_dev_s *dev = sens->dev;
+  bool start = false;
+  bool stop = false;
   int ret = OK;
-  bool first_open;
 
-  /* icm_reset()/icm_fifo_start() take dev->lock themselves — this lock
-   * only protects the crefs bookkeeping, and must be released before
-   * calling them or every first open() self-deadlocks on dev->lock.
+  /* icm_fifo_start()/icm_fifo_stop() take dev->lock themselves -- this
+   * lock only protects the refcount bookkeeping and must be released
+   * before calling them, or the 0->1 (or 1->0) transition self-deadlocks.
    */
 
   nxmutex_lock(&dev->lock);
-  dev->crefs++; // How many fds are open
-  first_open = (dev->crefs == 1);
+
+  if (enable)
+    {
+      start = (dev->refcount == 0);
+      dev->refcount++;
+    }
+  else
+    {
+      dev->refcount--;
+      stop = (dev->refcount == 0);
+    }
+
   nxmutex_unlock(&dev->lock);
 
-  if (first_open)   /* first opener — actually start the hardware */
-      {
-        ret = icm_reset(dev);          /* configure registers */
-        if (ret < 0)
-          {
-            syslog(LOG_ERR, "icm_open: icm_reset failed: %d\n", ret);
-          }
-        else
-          {
-            ret = icm_fifo_start(dev); /* arm watermark + IRQ */
-            if (ret < 0)
-              {
-                syslog(LOG_ERR, "icm_open: icm_fifo_start failed: %d\n", ret);
-              }
-            else
-              {
-                syslog(LOG_INFO, "icm_open: streaming armed\n");
-              }
-          }
+  if (start)
+    {
+      ret = icm_fifo_start(dev);
+      if (ret < 0)
+        {
+          /* Don't leave refcount stuck -- the next activate() must retry
+           * icm_fifo_start(), not silently skip it.
+           */
 
-        if (ret < 0)
-          {
-            /* Don't leave crefs stuck at 1 — the next open() must retry
-             * icm_reset()/icm_fifo_start(), not silently skip them.
-             */
-
-            nxmutex_lock(&dev->lock);
-            dev->crefs--;
-            nxmutex_unlock(&dev->lock);
-          }
-      }
+          nxmutex_lock(&dev->lock);
+          dev->refcount--;
+          nxmutex_unlock(&dev->lock);
+        }
+    }
+  else if (stop)
+    {
+      ret = icm_fifo_stop(dev);
+    }
 
   return ret;
 }
 
 /****************************************************************************
- * Name: icm_close
+ * Name: icm_set_interval
+ *
+ * Description:
+ *   accel and gyro share one physical ODR register pair, but each
+ *   topic negotiates its own rate independently through the uORB
+ *   upper half. Program the shared hardware to whichever of the two
+ *   topics' last-requested periods is faster (smaller), while still
+ *   reporting back to THIS topic the rate it will actually see (which
+ *   is always at least as fast as it asked for).
+ *
  ****************************************************************************/
 
-static int icm_close(FAR struct file *filep)
+static int icm_set_interval(FAR struct sensor_lowerhalf_s *lower,
+                            FAR struct file *filep,
+                            FAR uint32_t *period_us)
 {
-  FAR struct inode *inode = filep->f_inode;
-  FAR struct icm_dev_s *dev = inode->i_private;
-  bool last_close;
+  FAR struct icm_sens_s *sens = container_of(lower, struct icm_sens_s, lower);
+  FAR struct icm_dev_s *dev = sens->dev;
+  uint32_t reconciled;
+  uint32_t own_period_us;
+  int ret;
+  size_t i;
 
-  /* icm_fifo_stop() takes dev->lock itself — release before calling it,
-   * same reasoning as icm_open() above.
-   */
+  for (i = ICM_NUM_ODR - 1; i > 0; i--)
+    {
+      if (*period_us >= g_icm_odr_map[i].period_us)
+        {
+          break;
+        }
+    }
+
+  own_period_us = g_icm_odr_map[i].period_us;
 
   nxmutex_lock(&dev->lock);
-  dev->crefs--;
-  last_close = (dev->crefs == 0);
+
+  if (lower->type == SENSOR_TYPE_ACCELEROMETER)
+    {
+      dev->accel_period_us = own_period_us;
+    }
+  else
+    {
+      dev->gyro_period_us = own_period_us;
+    }
+
+  reconciled = dev->accel_period_us < dev->gyro_period_us ?
+               dev->accel_period_us : dev->gyro_period_us;
+
+  ret = icm_program_odr(dev, reconciled);
+  if (ret >= 0)
+    {
+      *period_us = own_period_us;
+    }
+
   nxmutex_unlock(&dev->lock);
-
-  if (last_close)   /* last closer — shut hardware down */
-    {
-      work_cancel(HPWORK, &dev->fifo_work);  /* cancel any pending work */
-      icm_fifo_stop(dev);                    /* disarm IRQ, disable FIFO */
-      circbuf_reset(&dev->fifo_rb);          /* flush stale samples */
-    }
-
-  return 0;
-}
- 
-/****************************************************************************
- * icm_read() — replaces your current synchronous-SPI version.
- *
- * Now just drains the ring buffer. No SPI calls happen here at all — by
- * the time read() is called, the worker has already done the work.
- ****************************************************************************/
- 
-static ssize_t icm_read(FAR struct file *filep, FAR char *buf, size_t len)
-{
-  FAR struct inode *inode = filep->f_inode;
-  FAR struct icm_dev_s *dev = inode->i_private;
-  ssize_t nread;
- 
-  /* Round len down to a whole number of samples — partial-sample reads
-   * don't make sense for this interface and would desync the caller's
-   * own framing if allowed.
-   */
- 
-  len -= len % sizeof(struct icm_fifo_sample_s);
-  if (len == 0)
-    {
-      return -EINVAL;
-    }
- 
-  nxsem_wait_uninterruptible(&dev->rb_sem);
- 
-  if (circbuf_is_empty(&dev->fifo_rb))
-    {
-      nxsem_post(&dev->rb_sem);
- 
-      if (filep->f_oflags & O_NONBLOCK)
-        {
-          return -EAGAIN;
-        }
- 
-      /* Blocking path: wait on a data-available semaphore posted by the
-       * worker. (Omitted here for brevity — standard NuttX pattern:
-       * nxsem_wait() on a dedicated dev->data_sem that icm_fifo_worker()
-       * posts after circbuf_write(), mirroring poll_notify() above.)
-       */
-    }
- 
-  nread = circbuf_read(&dev->fifo_rb, buf, len);
-  nxsem_post(&dev->rb_sem);
- 
-  return nread;
-}
- 
-/****************************************************************************
- * icm_poll() — new file_operations entry, lets userspace select()/poll()
- * on the fd instead of busy-calling read(). Add this to g_icm_fops.
- ****************************************************************************/
- 
-static int icm_poll(FAR struct file *filep, FAR struct pollfd *fds, bool setup)
-{
-  FAR struct inode *inode = filep->f_inode;
-  FAR struct icm_dev_s *dev = inode->i_private;
-  int ret = OK;
-  int i;
- 
-  nxsem_wait_uninterruptible(&dev->rb_sem);
- 
-  if (setup)
-    {
-      for (i = 0; i < ICM_NPOLLWAITERS; i++)
-        {
-          if (dev->fds[i] == NULL)
-            {
-              dev->fds[i] = fds;
-              fds->priv = &dev->fds[i];
-              break;
-            }
-        }
- 
-      if (i == ICM_NPOLLWAITERS)
-        {
-          ret = -ENOSPC;
-        }
-      else if (!circbuf_is_empty(&dev->fifo_rb))
-        {
-          poll_notify(&fds, 1, POLLIN);
-        }
-    }
-  else if (fds->priv != NULL)
-    {
-      FAR struct pollfd **slot = (FAR struct pollfd **)fds->priv;
-      *slot = NULL;
-      fds->priv = NULL;
-    }
- 
-  nxsem_post(&dev->rb_sem);
   return ret;
 }
 
 /****************************************************************************
- * Name: icm42688p_ioctl
+ * Name: icm_batch
+ *
+ * Description:
+ *   Same shared-hardware reconciliation as icm_set_interval(), but for
+ *   the FIFO watermark: accel and gyro each request a max latency
+ *   independently, and both get serviced by whichever is the tighter
+ *   (smaller) of the two, since one physical FIFO/watermark produces
+ *   samples for both topics simultaneously. A latency_us of 0 means
+ *   "no explicit request from this topic" and must not override a
+ *   real request already made by the other topic; if neither topic has
+ *   ever requested batching, fall back to the driver's original
+ *   default watermark.
+ *
  ****************************************************************************/
 
-static int icm_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
+static int icm_batch(FAR struct sensor_lowerhalf_s *lower,
+                     FAR struct file *filep,
+                     FAR uint32_t *latency_us)
 {
-  FAR struct inode *inode = filep->f_inode;
-  FAR struct icm_dev_s *dev = inode->i_private;
+  FAR struct icm_sens_s *sens = container_of(lower, struct icm_sens_s, lower);
+  FAR struct icm_dev_s *dev = sens->dev;
+  uint32_t effective_latency_us;
+  uint32_t samples;
+  uint16_t wm;
+  int ret;
+
+  nxmutex_lock(&dev->lock);
+
+  if (lower->type == SENSOR_TYPE_ACCELEROMETER)
+    {
+      dev->accel_latency_us = *latency_us;
+    }
+  else
+    {
+      dev->gyro_latency_us = *latency_us;
+    }
+
+  if (dev->accel_latency_us == 0 && dev->gyro_latency_us == 0)
+    {
+      wm = FIFO_WM_REC_TH;
+      effective_latency_us = (uint32_t)((uint64_t)wm * 1000000ull /
+                                        (uint32_t)dev->sample_rate);
+    }
+  else
+    {
+      if (dev->accel_latency_us == 0)
+        {
+          effective_latency_us = dev->gyro_latency_us;
+        }
+      else if (dev->gyro_latency_us == 0)
+        {
+          effective_latency_us = dev->accel_latency_us;
+        }
+      else
+        {
+          effective_latency_us = dev->accel_latency_us < dev->gyro_latency_us ?
+                                 dev->accel_latency_us : dev->gyro_latency_us;
+        }
+
+      samples = (uint32_t)((uint64_t)effective_latency_us *
+                           (uint32_t)dev->sample_rate / 1000000ull);
+      if (samples < 1)
+        {
+          samples = 1;
+        }
+      else if (samples > ICM_FIFO_MAX_RECS)
+        {
+          samples = ICM_FIFO_MAX_RECS;
+        }
+
+      wm = (uint16_t)samples;
+      effective_latency_us = (uint32_t)((uint64_t)wm * 1000000ull /
+                                        (uint32_t)dev->sample_rate);
+    }
+
+  ret = icm_program_watermark(dev, wm);
+  if (ret >= 0)
+    {
+      *latency_us = effective_latency_us;
+    }
+
+  nxmutex_unlock(&dev->lock);
+  return ret;
+}
+
+/****************************************************************************
+ * Name: icm_control
+ *
+ * Description:
+ *   Dispatches the device-specific ICM42688P_IOC_* commands (FSR,
+ *   notch/AAF filter config, offsets, lost-packet count). ODR and FIFO
+ *   watermark/latency are handled by the standard set_interval()/
+ *   batch() ops instead -- see icm42688p_uorb.h.
+ *
+ ****************************************************************************/
+
+static int icm_control(FAR struct sensor_lowerhalf_s *lower,
+                       FAR struct file *filep, int cmd, unsigned long arg)
+{
+  FAR struct icm_sens_s *sens = container_of(lower, struct icm_sens_s, lower);
+  FAR struct icm_dev_s *dev = sens->dev;
   int ret = OK;
 
-switch (cmd)
+  switch (cmd)
     {
       /* Set gyro full-scale range: ±125, ±250, ±500, ±1000, ±2000 dps */
       case ICM42688P_IOC_SET_GYRO_FSR:
         ret = icm_set_gyro_fsr(dev, (uint16_t)arg);
-        if (ret < 0)
-          {
-            snerr("ERROR: ICM42688P_IOC_SET_GYRO_FSR fails. Returns: %d\n", ret);
-          }
         break;
 
-      /* Set accel full-scale range: ±4, ±8, ±16, ±32 g */
+      /* Set accel full-scale range: ±2, ±4, ±8, ±16 g */
       case ICM42688P_IOC_SET_ACCEL_FSR:
         ret = icm_set_accel_fsr(dev, (uint16_t)arg);
         break;
 
-      /* Set ODR: 32000, 16000, 8000, 4000... Hz */
-      case ICM42688P_IOC_SET_ODR:
-        ret = icm_set_odr(dev, (uint32_t)arg);
-        break;
-      
       /* Set the notch filter frequency for each Gyro axis */
       case ICM42688P_IOC_SET_GYRO_DNF_FREQ:
         ret = icm_set_gyro_dnf_freq(dev, (uint32_t)arg);
@@ -2022,21 +2207,9 @@ switch (cmd)
         ret = icm_set_gyro_dnf_bandwidth(dev, (uint32_t)arg);
         break;
 
-      /* Tune FIFO watermark without restarting — affects IRQ rate/latency */
-      case ICM42688P_IOC_SET_WATERMARK:
-        ret = icm_set_watermark(dev, (uint16_t)arg);
-        break;
-
       /* Read and clear the FIFO overflow counter from FIFO_LOST_PKT0/1 */
       case ICM42688P_IOC_GET_LOST_PKTS:
         ret = icm_get_lost_packets(dev, (FAR uint32_t *)arg);
-        break;
-
-      /* Flush the ring buffer — discard buffered samples */
-      case ICM42688P_IOC_RESET_FIFO:
-        nxsem_wait_uninterruptible(&dev->rb_sem);
-        circbuf_reset(&dev->fifo_rb);
-        nxsem_post(&dev->rb_sem);
         break;
 
       /* Set gyro/accel offset (all three axes at once) */
@@ -2106,18 +2279,19 @@ switch (cmd)
  * Name: icm42688p_register
  *
  * Description:
- *   Registers the ICM-42688-P interface as 'devpath'
+ *   Registers the ICM-42688-P as a pair of uORB topics.
  *
  * Input Parameters:
- *   devpath  - The full path to the interface to register. E.g., "/dev/imu0"
- *   config   - Configuration information (SPI bus + chip-select)
+ *   devno  - Device instance number shared by both topics, e.g. devno=0
+ *            -> /dev/uorb/sensor_accel0, /dev/uorb/sensor_gyro0
+ *   config - Configuration information (SPI bus + chip-select + IRQ)
  *
  * Returned Value:
  *   Zero (OK) on success; a negated errno value on failure.
  *
  ****************************************************************************/
 
-int icm42688p_register(FAR const char *path, FAR struct icm_config_s *config)
+int icm42688p_register(int devno, FAR struct icm_config_s *config)
 {
   FAR struct icm_dev_s *priv;
   int ret;
@@ -2129,16 +2303,13 @@ int icm42688p_register(FAR const char *path, FAR struct icm_config_s *config)
       return -EINVAL;
     }
 
-  /* Initialize the device structure. */
-
-  priv = kmm_malloc(sizeof(struct icm_dev_s));  // Allocates the driver config struct on the kernel heap memory 
+  priv = kmm_zalloc(sizeof(struct icm_dev_s));
   if (priv == NULL)
     {
       snerr("ERROR: Failed to allocate ICM-42688-P device instance\n");
       return -ENOMEM;
     }
 
-  memset(priv, 0, sizeof(*priv));
   nxmutex_init(&priv->lock);
 
   /* Keep a copy of the config structure, in case the caller discards
@@ -2147,29 +2318,68 @@ int icm42688p_register(FAR const char *path, FAR struct icm_config_s *config)
 
   priv->config = *config;
 
+  priv->accel.dev = priv;
+  priv->gyro.dev  = priv;
+
+  /* No preference from either topic yet -- default to the slowest
+   * supported rate / the driver's original default watermark until a
+   * subscriber explicitly asks for something tighter via
+   * set_interval()/batch() (see their reconciliation logic above).
+   */
+
+  priv->accel_period_us  = UINT32_MAX;
+  priv->gyro_period_us   = UINT32_MAX;
+  priv->accel_latency_us = 0;
+  priv->gyro_latency_us  = 0;
+  priv->watermark_samples = FIFO_WM_REC_TH;
+
+  /* Chip reset default is +-16g / +-2000dps / 1kHz -- match the cached
+   * scale factors and sample rate to that until SET_*_FSR or
+   * set_interval() change them.
+   */
+
+  priv->accel_scale      = g_icm_accel_scale[0];
+  priv->gyro_scale       = g_icm_gyro_scale[0];
+  priv->sample_rate      = 1000.0f;
+  priv->sample_period_us = 1000;
+
   /* Reset the chip, to give it an initial configuration. */
 
   ret = icm_reset(priv);
   if (ret < 0)
     {
       snerr("ERROR: Failed to configure ICM-42688-P: %d\n", ret);
-
-      nxmutex_destroy(&priv->lock);
-      kmm_free(priv);
-      return ret;
+      goto err_free;
     }
 
-  /* Register the device node. */
+  priv->accel.lower.type    = SENSOR_TYPE_ACCELEROMETER;
+  priv->accel.lower.ops     = &g_icm_ops;
+  priv->accel.lower.nbuffer = CONFIG_SENSORS_ICM42688P_ACCEL_ORB_BUFSIZE;
 
-  ret = register_driver(path, &g_icm_fops, 0666, priv);
+  ret = sensor_register(&priv->accel.lower, devno);
   if (ret < 0)
     {
-      snerr("ERROR: Failed to register ICM-42688-P interface: %d\n", ret);
+      snerr("ERROR: Failed to register ICM-42688-P accelerometer topic: %d\n", ret);
+      goto err_free;
+    }
 
-      nxmutex_destroy(&priv->lock);
-      kmm_free(priv);
-      return ret;
+  priv->gyro.lower.type    = SENSOR_TYPE_GYROSCOPE;
+  priv->gyro.lower.ops     = &g_icm_ops;
+  priv->gyro.lower.nbuffer = CONFIG_SENSORS_ICM42688P_GYRO_ORB_BUFSIZE;
+
+  ret = sensor_register(&priv->gyro.lower, devno);
+  if (ret < 0)
+    {
+      snerr("ERROR: Failed to register ICM-42688-P gyroscope topic: %d\n", ret);
+      goto err_unreg_accel;
     }
 
   return OK;
+
+err_unreg_accel:
+  sensor_unregister(&priv->accel.lower, devno);
+err_free:
+  nxmutex_destroy(&priv->lock);
+  kmm_free(priv);
+  return ret;
 }

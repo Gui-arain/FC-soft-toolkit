@@ -8,8 +8,10 @@
 #include <stdint.h>
 #include <errno.h>
 #include <poll.h>
+#include <sys/ioctl.h>
 
-#include <nuttx/sensors/icm42688p-fifo.h> // #include <nuttx/sensors/ioctl.h> included inside
+#include <nuttx/sensors/sensor.h>
+#include <nuttx/sensors/ioctl.h>
 
 // estimayor_main.cpp
 extern "C" int estimator_main(int argc, char *argv[]);
@@ -24,76 +26,100 @@ int estimator_main(int argc, char *argv[])
      */
     setvbuf(stdout, NULL, _IONBF, 0);
 
-    //Access IMU driver
-    struct pollfd pfd;
-    pfd.fd = open("/dev/imu0", O_RDONLY | O_NONBLOCK);
+    //Access IMU driver uORB topics
+    struct pollfd pfd[2];
 
-    if (pfd.fd < 0) {
-         printf("estimator: failed to open /dev/imu0: %d\n", errno);
+    pfd[0].fd = open("/dev/uorb/sensor_accel0", O_RDONLY | O_NONBLOCK);
+    if (pfd[0].fd < 0) {
+         printf("estimator: failed to open /dev/uorb/sensor_accel0: %d\n", errno);
          return -1;
     }
 
-    pfd.events = POLLIN; /* wake us when the ring buffer has data */
+    pfd[1].fd = open("/dev/uorb/sensor_gyro0", O_RDONLY | O_NONBLOCK);
+    if (pfd[1].fd < 0) {
+         printf("estimator: failed to open /dev/uorb/sensor_gyro0: %d\n", errno);
+         close(pfd[0].fd);
+         return -1;
+    }
 
-    // Create an array of samples to read from the ring buffer
+    /* Request the same 1kHz cadence the chip defaults to after reset.
+     * The driver may round up; it reports the actual achieved period
+     * back into period_us, which we don't otherwise need here.
+     */
+
+    uint32_t period_us = 1000;
+    ioctl(pfd[0].fd, SNIOC_SET_INTERVAL, (unsigned long)&period_us);
+    period_us = 1000;
+    ioctl(pfd[1].fd, SNIOC_SET_INTERVAL, (unsigned long)&period_us);
+
+    pfd[0].events = POLLIN;
+    pfd[1].events = POLLIN;
+
+    // Create arrays of samples to read from each topic's uORB buffer.
     // The FIFO watermark is set to 50 by default (=sampling 641Hz)
-    icm_fifo_sample_s sample_array[50];
-    
+    struct sensor_accel accel_array[50];
+    struct sensor_gyro gyro_array[50];
+
     for(;;)
     {
       printf("estimator: Waiting for poll...\n");
-      int ret = poll(&pfd, 1, -1);      /* block indefinitely for data */
+      int ret = poll(pfd, 2, -1);      /* block indefinitely for data */
       if (ret < 0)
         {
           printf("estimator: poll failed: %d\n", errno);
           break;
         }
- 
-      if (!(pfd.revents & POLLIN))
+
+      if (pfd[0].revents & POLLIN)
         {
-          continue;
-        }
-      printf("estimator: Reading the samples...\n");
-      ssize_t nread = read(pfd.fd, sample_array, sizeof(sample_array));
-      if (nread < 0)
-        {
-          if (errno == EAGAIN)
+          ssize_t nread = read(pfd[0].fd, accel_array, sizeof(accel_array));
+          if (nread < 0 && errno != EAGAIN)
             {
-              continue;                 /* woke on a race; nothing to read yet */
+              printf("estimator: accel read failed: %d\n", errno);
+              break;
             }
- 
-          printf("estimator: read failed: %d\n", errno);
-          break;
+
+          int n = (int)(nread / (ssize_t)sizeof(struct sensor_accel));
+          if (n > 0)
+            {
+              /* Only the most recent sample of the batch is used. */
+
+              const struct sensor_accel *s = &accel_array[n - 1];
+
+              printf("read %2d accel sample(s) | last: "
+                     "accel=[%7.3f %7.3f %7.3f] m/s^2  "
+                     "temp=%5.1f C  ts=%llu\n",
+                     n, s->x, s->y, s->z, s->temperature,
+                     (unsigned long long)s->timestamp);
+            }
         }
- 
-      int n = (int)(nread / (ssize_t)sizeof(icm_fifo_sample_s));
-      if (n <= 0)
+
+      if (pfd[1].revents & POLLIN)
         {
-          continue;
+          ssize_t nread = read(pfd[1].fd, gyro_array, sizeof(gyro_array));
+          if (nread < 0 && errno != EAGAIN)
+            {
+              printf("estimator: gyro read failed: %d\n", errno);
+              break;
+            }
+
+          int n = (int)(nread / (ssize_t)sizeof(struct sensor_gyro));
+          if (n > 0)
+            {
+              /* Only the most recent sample of the batch is used. */
+
+              const struct sensor_gyro *s = &gyro_array[n - 1];
+
+              printf("read %2d gyro sample(s)  | last: "
+                     "gyro=[%8.3f %8.3f %8.3f] rad/s  "
+                     "temp=%5.1f C  ts=%llu\n",
+                     n, s->x, s->y, s->z, s->temperature,
+                     (unsigned long long)s->timestamp);
+            }
         }
- 
-      /* Convert the most recent sample to physical units.
-       * Default full-scale after reset: accel +/-16 g -> 2048 LSB/g,
-       * gyro +/-2000 dps -> 16.4 LSB/dps. FIFO temp is 8-bit.
-       */
- 
-      const struct icm_fifo_sample_s *s = &sample_array[n - 1];
- 
-      float ax = s->accel_x / 2048.0f;
-      float ay = s->accel_y / 2048.0f;
-      float az = s->accel_z / 2048.0f;
-      float gx = s->gyro_x  / 16.4f;
-      float gy = s->gyro_y  / 16.4f;
-      float gz = s->gyro_z  / 16.4f;
-      float t  = s->temp    / 2.07f + 25.0f;
- 
-      printf("read %2d sample(s) | last: "
-             "accel=[%7.3f %7.3f %7.3f] g  "
-             "gyro=[%8.3f %8.3f %8.3f] dps  "
-             "temp=%5.1f C  tmst=%u\n",
-             n, ax, ay, az, gx, gy, gz, t, (unsigned)s->tmst);
-      }
-     
-    close(pfd.fd);
+    }
+
+    close(pfd[0].fd);
+    close(pfd[1].fd);
     return 0;
 }

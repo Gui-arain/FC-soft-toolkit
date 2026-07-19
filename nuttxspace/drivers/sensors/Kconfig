@@ -23,12 +23,32 @@ config SENSORS_ICM40609D
 config SENSORS_ICM42688P
 	bool "InvenSense ICM-42688-P IMU (accel + gyro)"
 	default n
-	depends on SPI
+	depends on SPI && SENSORS
 	---help---
-		Enable the legacy-style NuttX driver for the InvenSense ICM-42688-P
-		6-axis IMU (accelerometer + gyroscope).
+		Enable the uORB-based NuttX driver for the InvenSense ICM-42688-P
+		6-axis IMU (accelerometer + gyroscope). Registers two independent
+		uORB topics per chip instance: /dev/uorb/sensor_accel<N> and
+		/dev/uorb/sensor_gyro<N>, each supporting multiple subscribers at
+		independent rates.
 
 		Default configuration after reset:
 		  Gyro:  ±2000 dps,  1 kHz ODR
 		  Accel: ±16 g,      1 kHz ODR
 		  Mode:  low-noise, temperature sensor on
+
+config SENSORS_ICM42688P_ACCEL_ORB_BUFSIZE
+	int "ICM-42688-P accelerometer uORB buffer size"
+	default 50
+	range 1 500
+	depends on SENSORS_ICM42688P
+	---help---
+		Circular buffer depth (in samples) for the accelerometer uORB
+		topic. Should be sized to at least the shared FIFO watermark
+		(default 50 samples) to avoid losing a burst's worth of samples
+		if a subscriber momentarily falls behind.
+
+config SENSORS_ICM42688P_GYRO_ORB_BUFSIZE
+	int "ICM-42688-P gyroscope uORB buffer size"
+	default 50
+	range 1 500
+	depends on SENSORS_ICM42688P

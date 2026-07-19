@@ -3,7 +3,7 @@ Tasks:
 - [x] Setup STM32 build/flash/debug on Linux
 - [x] Setup STM32 build/flash/debug on MacOS
 - [x] Install Nuttx on STM32H7
-- [ ] Run a custom app on Nuttx
+- [x] Run a custom app on Nuttx
 - [x] read IMU data Baremetal
 - [ ] read IMU data Nuttx
 - [ ] extended Kalman filter (EKF) implementation
@@ -14,5 +14,5 @@ Tasks:
 - [x] read Mag data
 - [ ] Read Barometer data
 - [ ] PX4 port to the board
-- [ ] NuttX board port
+- [x] NuttX board port
 - [ ] 

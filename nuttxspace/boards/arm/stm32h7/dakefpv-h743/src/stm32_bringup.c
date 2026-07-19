@@ -50,7 +50,7 @@
 #  include <string.h>
 #  include <arch/irq.h>
 #  include <nuttx/spi/spi.h>
-#  include <nuttx/sensors/icm42688p-fifo.h>
+#  include <nuttx/sensors/icm42688p_uorb.h>
 #  include "stm32_spi.h"
 #endif
 
@@ -66,13 +66,13 @@
  * Description:
  *   Register the two ICM-42688-P IMU drivers, per
  *   resources/FC-boards/DAKEFPV_H743:
- *     IMU1: SPI1 (CS: PA4, EXTI: PC4) -> /dev/imu0
- *     IMU2: SPI4 (CS: PB1, EXTI: PB2) -> /dev/imu1
+ *     IMU1: SPI1 (CS: PA4, EXTI: PC4) -> devno 0 -> sensor_accel0/gyro0
+ *     IMU2: SPI4 (CS: PB1, EXTI: PB2) -> devno 1 -> sensor_accel1/gyro1
  *
  ****************************************************************************/
 
 static int fc_imu_register(int bus, uint32_t spi_devid, int irq,
-                           CODE void (*irq_ack)(void), FAR const char *path)
+                           CODE void (*irq_ack)(void), int devno)
 {
   FAR struct spi_dev_s *spi;
   struct icm_config_s cfg;
@@ -91,15 +91,17 @@ static int fc_imu_register(int bus, uint32_t spi_devid, int irq,
   cfg.irq       = irq;
   cfg.irq_ack   = irq_ack;
 
-  ret = icm42688p_register(path, &cfg);
+  ret = icm42688p_register(devno, &cfg);
   if (ret < 0)
     {
       syslog(LOG_ERR,
-             "ERROR: icm42688p_register(%s) failed: %d\n", path, ret);
+             "ERROR: icm42688p_register(devno=%d) failed: %d\n", devno, ret);
       return ret;
     }
 
-  syslog(LOG_INFO, "IMU (ICM-42688-P) registered at %s\n", path);
+  syslog(LOG_INFO,
+         "IMU (ICM-42688-P) registered: sensor_accel%d/sensor_gyro%d\n",
+         devno, devno);
   return OK;
 }
 
@@ -195,17 +197,17 @@ int stm32_bringup(void)
 
 #ifdef CONFIG_SENSORS_ICM42688P
   ret = fc_imu_register(1, FC_IMU1_SPIDEV, STM32_IRQ_EXTI4,
-                        stm32_imu1_irq_ack, "/dev/imu0");
+                        stm32_imu1_irq_ack, 0);
   if (ret < 0)
     {
-      syslog(LOG_ERR, "ERROR: fc_imu_register(/dev/imu0) failed: %d\n", ret);
+      syslog(LOG_ERR, "ERROR: fc_imu_register(devno=0) failed: %d\n", ret);
     }
 
   ret = fc_imu_register(4, FC_IMU2_SPIDEV, STM32_IRQ_EXTI2,
-                        stm32_imu2_irq_ack, "/dev/imu1");
+                        stm32_imu2_irq_ack, 1);
   if (ret < 0)
     {
-      syslog(LOG_ERR, "ERROR: fc_imu_register(/dev/imu1) failed: %d\n", ret);
+      syslog(LOG_ERR, "ERROR: fc_imu_register(devno=1) failed: %d\n", ret);
     }
 #endif
 
