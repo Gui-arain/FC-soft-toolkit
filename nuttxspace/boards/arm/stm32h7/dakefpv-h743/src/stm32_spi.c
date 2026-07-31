@@ -83,13 +83,35 @@ static int stm32_imu_int_placeholder(int irq, FAR void *context,
  *   doc comment for why this is required.
  ****************************************************************************/
 
+/* TEMPORARY DIAGNOSTIC: toggle GPIO_LD1 unconditionally on every ISR
+ * entry, independent of dev->lock/HPWORK/the scheduler. If the watermark
+ * IRQ is storming (pending bit not actually clearing, CPU re-entering
+ * this handler continuously at a priority above the systick tick), LD1
+ * will read as a steady/dim glow -- too fast for the eye to resolve as
+ * blinking -- even though the rest of the system (heartbeat kthread,
+ * NSH) is fully frozen and can't run anything itself. A normal,
+ * human-visible watermark rate would instead show as a fast but
+ * distinct flicker, roughly ODR/watermark times per second.
+ * Remove once the freeze is root-caused.
+ */
+
+static void stm32_imu_irq_storm_probe(void)
+{
+  static bool led_state = false;
+
+  led_state = !led_state;
+  stm32_gpiowrite(GPIO_LD1, led_state);
+}
+
 void stm32_imu1_irq_ack(void)
 {
+  stm32_imu_irq_storm_probe();
   putreg32(STM32_EXTI_MASK(4), STM32_EXTI_CPUPR1);
 }
 
 void stm32_imu2_irq_ack(void)
 {
+  stm32_imu_irq_storm_probe();
   putreg32(STM32_EXTI_MASK(2), STM32_EXTI_CPUPR1);
 }
 #endif

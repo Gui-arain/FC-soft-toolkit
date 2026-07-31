@@ -165,7 +165,7 @@ int stm32_bringup(void)
    * context, not a true global-interrupt lockup.
    */
 
-  kthread_create("heartbeat", 230, 1024, heartbeat_main, NULL);
+  // kthread_create("heartbeat", 230, 1024, heartbeat_main, NULL);
 
 #ifdef CONFIG_FS_PROCFS
   /* Mount the procfs file system */
@@ -196,6 +196,15 @@ int stm32_bringup(void)
 #endif
 
 #ifdef CONFIG_SENSORS_ICM42688P
+  /* GPIO_LD1 used to be configured as an output by heartbeat_main()
+   * above (now disabled). The ISR storm-probe in stm32_spi.c drives
+   * this same pin directly on every watermark IRQ entry, so it still
+   * needs to be in push-pull output mode -- neither CONFIG_ARCH_LEDS
+   * nor CONFIG_USERLED is enabled in this defconfig to do it for us.
+   */
+
+  stm32_configgpio(GPIO_LD1);
+
   ret = fc_imu_register(1, FC_IMU1_SPIDEV, STM32_IRQ_EXTI4,
                         stm32_imu1_irq_ack, 0);
   if (ret < 0)

@@ -193,7 +193,7 @@ int main(void)
       HAL_GPIO_WritePin(GPIOD, GPIO_PIN_6, GPIO_PIN_SET);  // Turn on error LED
       Error_Handler();
   }
-
+/*
   BMP388_Status st = BMP388_Init(&bmp);
     if (st != BMP388_OK) {
       uint32_t i2c_err = HAL_I2C_GetError(&hi2c2);
@@ -201,7 +201,7 @@ int main(void)
 	  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_6, GPIO_PIN_SET);  // Turn on error LED
 	  Error_Handler();
   }
-
+*/
 
   HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);  // Red
   HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_2);  // Green

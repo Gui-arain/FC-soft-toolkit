@@ -14,6 +14,7 @@
 #include <nuttx/debug.h>
 #include <string.h>
 #include <stdint.h>
+#include <unistd.h>
 #include <nuttx/bits.h>
 #include <nuttx/mutex.h>
 #include <nuttx/signal.h>
@@ -29,6 +30,7 @@
 #include <nuttx/sensors/icm42688p_uorb.h>
 
 #include <nuttx/wqueue.h>     /* work_queue() bottom half */
+#include <nuttx/kthread.h>
 #include <math.h>
 
 /****************************************************************************
@@ -65,7 +67,7 @@
 #define ICM_FIFO_HEADER_ACCEL  BIT(6)
 #define ICM_FIFO_HEADER_GYRO   BIT(5)
 
-#define FIFO_WM_REC_TH 50 // 50 : 32kHz -> 641Hz Default watermark threshold in number of samples
+#define FIFO_WM_REC_TH 110 // 50 : 32kHz -> 641Hz Default watermark threshold in number of samples
 
 /****************************************************************************
  * Private Types
@@ -651,7 +653,7 @@ static const struct sensor_ops_s g_icm_ops =
  * for documentation.
  */
 
-static int __icm_read_reg_spi(FAR struct icm_dev_s *dev, enum icm_regaddr_e reg_addr, FAR uint8_t *buf, uint8_t len)
+static int __icm_read_reg_spi(FAR struct icm_dev_s *dev, enum icm_regaddr_e reg_addr, FAR uint8_t *buf, uint16_t len)
 {
   int ret;
   FAR struct spi_dev_s *spi = dev->config.spi;
@@ -695,7 +697,7 @@ static int __icm_read_reg_spi(FAR struct icm_dev_s *dev, enum icm_regaddr_e reg_
 
 /* __icm_write_reg(), but for SPI connections. */
 
-static int __icm_write_reg_spi(FAR struct icm_dev_s *dev, enum icm_regaddr_e reg_addr, FAR const uint8_t * buf, uint8_t len)
+static int __icm_write_reg_spi(FAR struct icm_dev_s *dev, enum icm_regaddr_e reg_addr, FAR const uint8_t * buf, uint16_t len)
 {
   int ret;
   FAR struct spi_dev_s *spi = dev->config.spi;
@@ -745,7 +747,7 @@ static int __icm_write_reg_spi(FAR struct icm_dev_s *dev, enum icm_regaddr_e reg
  * Returns number of bytes read, or a negative errno.
  */
 
-static inline int __icm_read_reg(FAR struct icm_dev_s *dev, enum icm_regaddr_e reg_addr, FAR uint8_t *buf, uint8_t len)
+static inline int __icm_read_reg(FAR struct icm_dev_s *dev, enum icm_regaddr_e reg_addr, FAR uint8_t *buf, uint16_t len)
 {
   /* If we're wired to SPI, use that function. */
 
@@ -774,7 +776,7 @@ static inline int __icm_read_reg(FAR struct icm_dev_s *dev, enum icm_regaddr_e r
  * Returns number of bytes written, or a negative errno.
  */
 
-static inline int __icm_write_reg(FAR struct icm_dev_s *dev,  enum icm_regaddr_e reg_addr, FAR const uint8_t *buf, uint8_t len)
+static inline int __icm_write_reg(FAR struct icm_dev_s *dev,  enum icm_regaddr_e reg_addr, FAR const uint8_t *buf, uint16_t len)
 {
   /* If we're connected to SPI, use that function. */
 
@@ -832,7 +834,7 @@ static int __icm_read_fifo_count(FAR struct icm_dev_s *dev, u_int16_t *fifo_byte
  * icm_reset()
  *
  * Resets the IMU signal path / FIFO buffer
- * Configures the little-endian convention
+ * Configures big-endian FIFO count/sensor data (matches this driver's parsing)
  * Turn Gyro and Accel back on (in Low Noise mode)
  *
  ****************************************************************************/
@@ -848,13 +850,23 @@ static int icm_reset(FAR struct icm_dev_s *dev)
    */
   const uint8_t signal_path_reset = SIGNAL_PATH_RESET__ABORT_AND_RESET |SIGNAL_PATH_RESET__FIFO_FLUSH ;
 
-  /* Endian connfig and records count
+  /* Endian config and records count
    * INTF_CONFIG0__FIFO_HOLD_LAST_DATA_EN = 1
-   * INTF_CONFIG0__FIFO_COUNT_ENDIAN = 0        => STM32s are strictly little-endian so we reconfigure the IMU like so
-   * INTF_CONFIG0__SENSOR_DATA_ENDIAN = 0
+   * INTF_CONFIG0__FIFO_COUNT_ENDIAN = 1        => big-endian: __icm_read_fifo_count()
+   *                                                combines FIFO_COUNTH/L as (high<<8)|low,
+   *                                                and this MUST match what's actually on
+   *                                                the wire or the 16-bit count comes back
+   *                                                byte-swapped (e.g. a real count of 0x0080
+   *                                                misread as 0x8000 = 32768).
+   * INTF_CONFIG0__SENSOR_DATA_ENDIAN = 1       => big-endian: icm_fifo_worker()'s packet
+   *                                                parser also assumes (high<<8)|low for
+   *                                                every accel/gyro/temp/tmst field.
    * INTF_CONFIG0__FIFO_COUNT_REC = 1           => We also configure FIFO_COUNT in samples instead of bytes
    */
-  const uint8_t intf_config0 = INTF_CONFIG0__FIFO_HOLD_LAST_DATA_EN | INTF_CONFIG0__FIFO_COUNT_REC;
+  const uint8_t intf_config0 = INTF_CONFIG0__FIFO_HOLD_LAST_DATA_EN |
+                               INTF_CONFIG0__FIFO_COUNT_ENDIAN |
+                               INTF_CONFIG0__SENSOR_DATA_ENDIAN |
+                               INTF_CONFIG0__FIFO_COUNT_REC;
 
   /* 6-axis low-noise mode: gyro LN + accel LN */
   const uint8_t pwr_mgmt0 = PWR_MGMT0__GYRO_MODE_LN | PWR_MGMT0__ACCEL_MODE_LN;
@@ -918,6 +930,21 @@ static int icm_reset(FAR struct icm_dev_s *dev)
       nxmutex_unlock(&dev->lock);
       return ret;
     }
+
+  /* TEMPORARY DIAGNOSTIC: confirm PWR_MGMT0 actually latched -- if this
+   * ever reads back different from what we just wrote, accel/gyro
+   * sampling isn't really running even though every earlier write
+   * "succeeded" (SPI transactions here don't verify the chip actually
+   * applied the value). Remove once root-caused.
+   */
+
+  {
+    uint8_t pwr_mgmt0_readback = 0;
+    int rb_ret = __icm_read_reg(dev, PWR_MGMT0, &pwr_mgmt0_readback, 1);
+
+    syslog(LOG_INFO, "icm_reset: PWR_MGMT0 wrote 0x%02x, readback ret=%d val=0x%02x\n",
+           pwr_mgmt0, rb_ret, pwr_mgmt0_readback);
+  }
 
   ret = __icm_write_reg(dev, INT_CONFIG, &int_config, 1);
   if (ret < 0)
@@ -1014,6 +1041,47 @@ static int icm_program_odr(FAR struct icm_dev_s *dev, uint32_t period_us)
 }
 
 /****************************************************************************
+ * TEMPORARY DIAGNOSTIC: icm_debug_fifo_poll_main()
+ *
+ * Polls FIFO_COUNTH/L directly on a timer, completely independent of
+ * the watermark IRQ/worker path -- this tells us whether the FIFO is
+ * genuinely accumulating samples (PWR_MGMT0/FIFO_CONFIG1 both read
+ * back correctly, so accel/gyro sampling and FIFO writes are enabled,
+ * but we've only ever seen ONE interrupt fire, at a tiny count, then
+ * nothing). If this poll shows the count climbing steadily on its own,
+ * the bug is in interrupt generation/routing, not FIFO accumulation.
+ * If it stays near 0 forever despite correct config, something else
+ * is silently discarding samples. Remove once root-caused.
+ ****************************************************************************/
+
+static FAR struct icm_dev_s *g_debug_poll_dev;
+
+static int icm_debug_fifo_poll_main(int argc, FAR char *argv[])
+{
+  FAR struct icm_dev_s *dev = g_debug_poll_dev;
+  int i;
+
+  syslog(LOG_INFO, "icm_debug_fifo_poll: thread started, dev=%p\n", dev);
+
+  for (i = 0; i < 20; i++)
+    {
+      uint16_t fifo_packets = 0;
+      int ret;
+
+      usleep(300 * 1000);
+
+      nxmutex_lock(&dev->lock);
+      ret = __icm_read_fifo_count(dev, &fifo_packets);
+      nxmutex_unlock(&dev->lock);
+
+      syslog(LOG_INFO, "icm_debug_fifo_poll: [%d] ret=%d packets=%u\n",
+             i, ret, fifo_packets);
+    }
+
+  return 0;
+}
+
+/****************************************************************************
  * icm_fifo_start()
  *
  * Configure the required FIFO registers
@@ -1077,6 +1145,36 @@ static int icm_fifo_start(FAR struct icm_dev_s *dev)
       return ret;
     }
 
+  /* TEMPORARY DIAGNOSTIC: confirm FIFO_CONFIG1 (accel/gyro-into-FIFO
+   * enable) actually latched -- if this reads back different from what
+   * we just wrote, the FIFO never actually starts accumulating real
+   * samples even though this write "succeeded". Remove once
+   * root-caused.
+   */
+
+  {
+    uint8_t fifo_config1_readback = 0;
+    int rb_ret = __icm_read_reg(dev, FIFO_CONFIG1, &fifo_config1_readback, 1);
+
+    syslog(LOG_INFO, "icm_fifo_start: FIFO_CONFIG1 wrote 0x%02x, readback ret=%d val=0x%02x\n",
+           fifo_config1, rb_ret, fifo_config1_readback);
+  }
+
+  /* TEMPORARY DIAGNOSTIC: PWR_MGMT0 is only written once at icm_reset()
+   * (early boot bringup, before a console can be attached to see it) --
+   * re-check it here too, at a time we can actually observe, to confirm
+   * accel/gyro are genuinely still in low-noise continuous sampling
+   * mode by the time streaming is armed. Remove once root-caused.
+   */
+
+  {
+    uint8_t pwr_mgmt0_readback = 0;
+    int rb_ret = __icm_read_reg(dev, PWR_MGMT0, &pwr_mgmt0_readback, 1);
+
+    syslog(LOG_INFO, "icm_fifo_start: PWR_MGMT0 readback ret=%d val=0x%02x\n",
+           rb_ret, pwr_mgmt0_readback);
+  }
+
   /* Program whatever watermark is currently in effect -- either the
    * driver-default set at registration, or a value already requested
    * live via icm_batch() before this (re)activation. Don't reset it
@@ -1107,6 +1205,17 @@ static int icm_fifo_start(FAR struct icm_dev_s *dev)
   dev->streaming = true; // Signals the FIFO+IRQ are armed and streaming
 
   nxmutex_unlock(&dev->lock);
+
+  /* TEMPORARY DIAGNOSTIC: spawn the independent FIFO-count poll thread
+   * (see icm_debug_fifo_poll_main() above). Remove once root-caused.
+   */
+
+  g_debug_poll_dev = dev;
+  {
+    int poll_pid = kthread_create("icm_debug_poll", 100, 2048,
+                                  icm_debug_fifo_poll_main, NULL);
+    syslog(LOG_INFO, "icm_fifo_start: debug poll kthread_create() = %d\n", poll_pid);
+  }
 
   return ret;
 }
@@ -1253,10 +1362,25 @@ static void icm_fifo_worker(FAR void *arg)
        */
 
       syslog(LOG_INFO, "icm_fifo_worker: first watermark interrupt serviced\n");
-      s_first_isr_logged = true;
+    }
+
+  /* TEMPORARY DIAGNOSTIC: step-by-step checkpoints for the freeze
+   * investigation, gated to the first-ever invocation only (the one
+   * that's apparently never returning), so a working system doesn't get
+   * spammed on every subsequent burst. Remove once root-caused.
+   */
+
+  if (!s_first_isr_logged)
+    {
+      syslog(LOG_INFO, "icm_fifo_worker: cp1 about to lock dev->lock\n");
     }
 
   nxmutex_lock(&dev->lock);
+
+  if (!s_first_isr_logged)
+    {
+      syslog(LOG_INFO, "icm_fifo_worker: cp2 got dev->lock\n");
+    }
 
   /* Step 1: how much is actually in the FIFO right now? Burst-reading a
    * fixed/maximal size every time wastes SPI bandwidth and time you don't
@@ -1264,6 +1388,16 @@ static void icm_fifo_worker(FAR void *arg)
    */
 
   ret = __icm_read_fifo_count(dev, &fifo_packets);
+
+  /* Unconditional (not gated to first-invocation) -- needed across
+   * multiple cold-boot trials to see whether the count at first
+   * service correlates with whether the stream keeps working
+   * afterward. Remove once root-caused.
+   */
+
+  syslog(LOG_INFO, "icm_fifo_worker: cp3 fifo count read ret=%d packets=%u\n",
+         ret, fifo_packets);
+
   if (ret < 0 || fifo_packets == 0)
     {
       nxmutex_unlock(&dev->lock);   // If no packets available in FIFO or an error occured we end the worker
@@ -1289,7 +1423,18 @@ static void icm_fifo_worker(FAR void *arg)
    */
   n_bytes = fifo_packets*ICM_FIFO_PACKET_SIZE;
 
+  if (!s_first_isr_logged)
+    {
+      syslog(LOG_INFO, "icm_fifo_worker: cp4 about to burst-read %u bytes\n", n_bytes);
+    }
+
   ret = __icm_read_reg(dev, FIFO_DATA, dev->fifo_raw, n_bytes);
+
+  if (!s_first_isr_logged)
+    {
+      syslog(LOG_INFO, "icm_fifo_worker: cp5 burst read ret=%d\n", ret);
+    }
+
   if (ret < 0)
     {
       snerr("ERROR: FIFO burst read failed: %d\n", ret);
@@ -1297,11 +1442,30 @@ static void icm_fifo_worker(FAR void *arg)
       return;
     }
 
+  /* TEMPORARY DIAGNOSTIC / likely real fix: the datasheet states the
+   * FIFO_CONFIG2/3 watermark interrupt "only fires once" -- rewriting
+   * the same watermark value re-arms it for the next crossing. Without
+   * this, only the very first interrupt of a session ever fires.
+   * Remove the log once confirmed; keep the re-arm write either way.
+   */
+
+  ret = icm_program_watermark(dev, dev->watermark_samples);
+
+  if (!s_first_isr_logged)
+    {
+      syslog(LOG_INFO, "icm_fifo_worker: cp5b watermark re-armed ret=%d\n", ret);
+    }
+
   accel_scale = dev->accel_scale;
   gyro_scale  = dev->gyro_scale;
   base_ts     = dev->isr_timestamp_us;
 
   nxmutex_unlock(&dev->lock);
+
+  if (!s_first_isr_logged)
+    {
+      syslog(LOG_INFO, "icm_fifo_worker: cp6 unlocked, entering parse loop\n");
+    }
 
   /* Step 3: parse every packet (accel+gyro always paired per record)
    * into physical-unit samples. Done outside dev->lock since this only
@@ -1324,6 +1488,16 @@ static void icm_fifo_worker(FAR void *arg)
            * should be (count and content can race against the live
            * FIFO write pointer).
            */
+
+          /* TEMPORARY DIAGNOSTIC: this branch is firing on packet 0 of
+           * every burst despite fifo_packets showing ~100+ records --
+           * print the raw header/bytes so we can see what's actually
+           * coming back. Remove once root-caused.
+           */
+
+          syslog(LOG_INFO, "icm_fifo_worker: MSG break at packet %u/%u, "
+                 "header=0x%02x raw[0..3]=%02x %02x %02x %02x\n",
+                 i, fifo_packets, header, pkt[0], pkt[1], pkt[2], pkt[3]);
 
           break;
         }
@@ -1360,6 +1534,12 @@ static void icm_fifo_worker(FAR void *arg)
       dev->gyro_burst[n_valid].temperature  = temp_c;
 
       n_valid++;
+    }
+
+  if (!s_first_isr_logged)
+    {
+      syslog(LOG_INFO, "icm_fifo_worker: cp7 parse loop done, n_valid=%u\n", n_valid);
+      s_first_isr_logged = true;
     }
 
   if (n_valid == 0)
@@ -1409,11 +1589,27 @@ static void icm_fifo_worker(FAR void *arg)
    * rate (see icm42688p_uorb.c design notes / sensor_push_event()).
    */
 
+  if (!s_first_isr_logged)
+    {
+      syslog(LOG_INFO, "icm_fifo_worker: cp8 timestamps done, about to push accel\n");
+    }
+
   dev->accel.lower.push_event(dev->accel.lower.priv, dev->accel_burst,
                               n_valid * sizeof(struct sensor_accel));
 
+  if (!s_first_isr_logged)
+    {
+      syslog(LOG_INFO, "icm_fifo_worker: cp9 accel pushed, about to push gyro\n");
+    }
+
   dev->gyro.lower.push_event(dev->gyro.lower.priv, dev->gyro_burst,
                              n_valid * sizeof(struct sensor_gyro));
+
+  if (!s_first_isr_logged)
+    {
+      syslog(LOG_INFO, "icm_fifo_worker: cp10 gyro pushed, worker returning normally\n");
+      s_first_isr_logged = true;
+    }
 }
 
 /****************************************************************************

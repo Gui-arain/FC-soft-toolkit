@@ -161,3 +161,23 @@ hypotheses.
 - `nuttxspace/drivers/include/nuttx/sensors/icm42688p-fifo.h`
 - `nuttxspace/fc-stack/estimator/estimator_main.cpp`
 - `CLAUDE.md`
+
+```
+nsh> uorb_listener sensor_accel0 -t 10 
+Monitor objects num:1 
+object_name:sensor_accel, object_instance:0 
+
+icm_fifo_start: FIFO_CONFIG1 wrote 0x67, readback ret=1 val=0x67 icm_fifo_start: PWR_MGMT0 readback ret=1 val=0x0f 
+icm_fiifo_start: irq attached 
+icm_fifo_worker: first watermark interrupt serviced 
+icm_fifo_worker: cp1 about to lock dev->lock 
+icm_fifo_start: irq enabled 
+icm_fifo_worker: cp2 got dev->lock 
+icm_fifo_worker: cp3 fifo count read ret=2 packets=3 
+icm_fifo_worker: cp4 aboout to burst-read 48 bytes 
+icm_fifo_worker: cp5 burst read ret=48 
+icm_fifo_worker: cp5b watermark re-armed ret=2 
+icm_fifo_worker: cp6 unlocked, entering parse loop 
+icm_fifo_worker: cp7 parse loop done, n_valid=0 
+icm_fifo_start: debug poll kthread_creat
+```

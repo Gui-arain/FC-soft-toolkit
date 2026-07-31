@@ -97,12 +97,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Doc/NuttX setup 🥜.md",
+                "file": "Doc/drivers/DAKEFPV_H743 estimator hang — debug session.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "NuttX setup 🥜"
+              "title": "DAKEFPV_H743 estimator hang — debug session"
             }
           }
         ],
@@ -270,21 +270,21 @@
   },
   "active": "6dbe9dc09ca20c3d",
   "lastOpenFiles": [
-    "nuttxspace/nuttx/nuttx.bin",
-    "nuttxspace/nuttx/nuttx.hex",
-    "nuttxspace/nuttx/nuttx.manifest",
-    "nuttxspace/nuttx/System.map",
-    "nuttxspace/nuttx/nuttx",
-    "nuttxspace/nuttx/nuttx.map",
-    "nuttxspace/boards/arm/stm32h7/dakefpv-h743/src/libboard.a",
-    "nuttxspace/boards/arm/stm32h7/dakefpv-h743/src/stm32_spi.o",
-    "nuttxspace/boards/arm/stm32h7/dakefpv-h743/src/stm32_usb.o",
-    "nuttxspace/boards/arm/stm32h7/dakefpv-h743/src/stm32_boot.o",
-    "nuttxspace/boards/arm/stm32h7/dakefpv-h743/src/stm32_userleds.o",
+    "nuttxspace/boards/arm/stm32h7/dakefpv-h743/scripts/flash.ld.tmp",
+    "nuttxspace/nuttx/libs/libc/stn73BIl",
+    "nuttxspace/nuttx/drivers/stib9oPj",
+    "nuttxspace/nuttx/drivers/syslog_early.ddc",
+    "nuttxspace/nuttx/drivers/spi_transfer.ddc",
+    "nuttxspace/nuttx/drivers/serial_io.ddc",
+    "nuttxspace/nuttx/drivers/serial_dma.ddc",
+    "nuttxspace/nuttx/drivers/serial.ddc",
+    "nuttxspace/nuttx/drivers/usensor.ddc",
+    "nuttxspace/nuttx/drivers/sensor.ddc",
+    "nuttxspace/nuttx/drivers/pipe_common.ddc",
+    "Doc/NuttX setup 🥜.md",
     "Doc/NuttX Build Config.md",
     "Doc/NuttX Board Port.md",
     "Doc/Setup MacOS 🍎.md",
-    "Doc/NuttX setup 🥜.md",
     "Doc/drivers/ICM-40609-D @ 32kHz — Legacy NuttX Driver Sketch.md",
     "Doc/drivers/DAKEFPV_H743 estimator hang — debug session.md",
     "Doc/FC stack architecture.md",
