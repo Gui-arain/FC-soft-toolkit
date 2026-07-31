@@ -80,6 +80,7 @@ static int fc_spi_initialize(void)
 
   /* Bring up SPI4 (Magnetometer) */
 
+#ifdef CONFIG_STM32H7_SPI4
   FAR struct spi_dev_s *spi4 = stm32_spibus_initialize(FC_MAG_SPI_BUS);
   if (spi4 == NULL)
     {
@@ -91,9 +92,11 @@ static int fc_spi_initialize(void)
     {
       syslog(LOG_INFO, "SPI%d (MAG) initialized\n", FC_MAG_SPI_BUS);
     }
+#endif
 
   /* Bring up SPI5 (IMU) */
 
+#ifdef CONFIG_STM32H7_SPI5
   FAR struct spi_dev_s *spi5 = stm32_spibus_initialize(FC_IMU_SPI_BUS);
   if (spi5 == NULL)
     {
@@ -105,6 +108,7 @@ static int fc_spi_initialize(void)
     {
       syslog(LOG_INFO, "SPI%d (IMU) initialized\n", FC_IMU_SPI_BUS);
     }
+#endif
 
   return ret;
 }
@@ -121,6 +125,7 @@ static int fc_spi_initialize(void)
 
 static int fc_i2c_initialize(void)
 {
+#ifdef CONFIG_STM32H7_I2C2
   FAR struct i2c_master_s *i2c2 = stm32_i2cbus_initialize(FC_BARO_I2C_BUS);
   if (i2c2 == NULL)
     {
@@ -130,6 +135,7 @@ static int fc_i2c_initialize(void)
     }
 
   syslog(LOG_INFO, "I2C%d (BARO) initialized\n", FC_BARO_I2C_BUS);
+#endif
   return OK;
 }
 

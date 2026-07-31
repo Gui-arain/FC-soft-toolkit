@@ -95,7 +95,7 @@
  *
  *   PLL1P = PLL1_VCO/2  = 800 MHz / 2   = 480 MHz
  *   PLL1Q = PLL1_VCO/4  = 800 MHz / 4   = 240 MHz
- *   PLL1R = PLL1_VCO/8  = 800 MHz / 4   = 240 MHz
+ *   PLL1R = PLL1_VCO/4  = 800 MHz / 4   = 240 MHz
  */
 
 #define STM32_PLLCFG_PLL1CFG     (RCC_PLLCFGR_PLL1VCOSEL_WIDE | \
@@ -119,9 +119,9 @@
  *
  *   PLL1_VCO = (8 MHz / 2) * 40 = 160 MHz
  *
- *   PLL2P = PLL2_VCO/2  = 160 MHz / 8   = 20 MHz
- *   PLL2Q = PLL2_VCO/4  = 160 MHz / 8  = 20 MHz
- *   PLL2R = PLL2_VCO/8  = 160 MHz / 2   = 80 MHz
+ *   PLL2P = PLL2_VCO/8  = 160 MHz / 8   = 20 MHz
+ *   PLL2Q = PLL2_VCO/8  = 160 MHz / 8  = 20 MHz
+ *   PLL2R = PLL2_VCO/2  = 160 MHz / 2   = 80 MHz
  */
 #define STM32_PLLCFG_PLL2CFG (RCC_PLLCFGR_PLL2VCOSEL_WIDE | \
                               RCC_PLLCFGR_PLL2RGE_4_8_MHZ | \
@@ -144,9 +144,9 @@
 
  *   PLL3_VCO = (8 MHz / 1) * 24 = 192 MHz
  *
- *   PLL3P = PLL3_VCO/2  = 192 MHz / 24   = 8 MHz
- *   PLL3Q = PLL3_VCO/1  = 192 MHz / 4  = 48 MHz
- *   PLL3R = PLL3_VCO/20  = 192 MHz / 96   = 2 MHz
+ *   PLL3P = PLL3_VCO/24  = 192 MHz / 24   = 8 MHz
+ *   PLL3Q = PLL3_VCO/4   = 192 MHz / 4  = 48 MHz
+ *   PLL3R = PLL3_VCO/96  = 192 MHz / 96   = 2 MHz
  */
 #define STM32_PLLCFG_PLL3CFG (RCC_PLLCFGR_PLL3VCOSEL_WIDE| \
                               RCC_PLLCFGR_PLL3RGE_4_8_MHZ| \

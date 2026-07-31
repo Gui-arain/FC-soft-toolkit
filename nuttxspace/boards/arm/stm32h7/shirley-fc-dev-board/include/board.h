@@ -75,85 +75,89 @@
 
 /* PLL1, wide 2 - 4 MHz input, enable DIVP, DIVQ, DIVR
  *
- *   PLL1_VCO = (16,000,000 / 8) * 80 = 160 MHz 
+ *   PLL1_VCO = (16 MHz / 4) * 240 = 960 MHz 
  *  
  *  Outputs of PPL1:
- *   PLL1P = PLL1_VCO/2  = 160 MHz / 2   = 80 MHz
- *   PLL1Q = PLL1_VCO/4  = 160 MHz / 2   = 80 MHz
- *   PLL1R = PLL1_VCO/8  = 160 MHz / 2   = 80 MHz
+ *   PLL1P = PLL1_VCO/2  = 800 MHz / 2   = 480 MHz
+ *   PLL1Q = PLL1_VCO/4  = 800 MHz / 4   = 240 MHz
+ *   PLL1R = PLL1_VCO/4  = 800 MHz / 4   = 240 MHz
  */
 
-#define STM32_PLLCFG_PLL1CFG     (RCC_PLLCFGR_PLL1VCOSEL_MEDIUM | \
-                                  RCC_PLLCFGR_PLL1RGE_2_4_MHZ   | \
-                                  RCC_PLLCFGR_DIVP1EN           | \
+#define STM32_PLLCFG_PLL1CFG     (RCC_PLLCFGR_PLL1VCOSEL_WIDE | \
+                                  RCC_PLLCFGR_PLL1RGE_4_8_MHZ | \
+                                  RCC_PLLCFGR_DIVP1EN | \
+                                  RCC_PLLCFGR_DIVQ1EN | \
                                   RCC_PLLCFGR_DIVR1EN)
-                                  /* DIVQ1EN omitted — PLL1Q unused */
-#define STM32_PLLCFG_PLL1M       RCC_PLLCKSELR_DIVM1(8)
-#define STM32_PLLCFG_PLL1N       RCC_PLL1DIVR_N1(80)
-#define STM32_PLLCFG_PLL1P       RCC_PLL1DIVR_P1(2)
-#define STM32_PLLCFG_PLL1Q       RCC_PLL1DIVR_Q1(2)
-#define STM32_PLLCFG_PLL1R       RCC_PLL1DIVR_R1(2)
 
-#define STM32_VCO1_FREQUENCY     ((STM32_HSE_FREQUENCY / 8) * 80)
+#define STM32_VCO1_FREQUENCY     ((STM32_HSE_FREQUENCY / 4) * 240)
 #define STM32_PLL1P_FREQUENCY    (STM32_VCO1_FREQUENCY / 2)
-#define STM32_PLL1Q_FREQUENCY    (STM32_VCO1_FREQUENCY / 2)
-#define STM32_PLL1R_FREQUENCY    (STM32_VCO1_FREQUENCY / 2)
+#define STM32_PLL1Q_FREQUENCY    (STM32_VCO1_FREQUENCY / 4)
+#define STM32_PLL1R_FREQUENCY    (STM32_VCO1_FREQUENCY / 4)
+
+#define STM32_PLLCFG_PLL1M       RCC_PLLCKSELR_DIVM1(4)
+#define STM32_PLLCFG_PLL1N       RCC_PLL1DIVR_N1(240)
+#define STM32_PLLCFG_PLL1P       RCC_PLL1DIVR_P1(2)
+#define STM32_PLLCFG_PLL1Q       RCC_PLL1DIVR_Q1(4)
+#define STM32_PLLCFG_PLL1R       RCC_PLL1DIVR_R1(4)
 
 /* PLL2, 16 MHz input, enable DIVP, DIVQ, DIVR
  *
- *   PLL2_VCO = (16,000,000 / 8) * 80 = 160 MHz
+ *   PLL2_VCO = (16 MHz / 4) * 40 = 160 MHz
  *
  *  Outputs of PLL2:
- *   PLL2P = PLL2_VCO/2  = 160 MHz / 2  = 80 MHz
- *   PLL2Q = PLL2_VCO/40 = 160 MHz / 40 =  4 MHz  ← used for SPI4,5
+ *   PLL2P = PLL2_VCO/8  = 160 MHz / 8  = 20 MHz
+ *   PLL2Q = PLL2_VCO/8  = 160 MHz / 8 =  20 MHz  ← used for SPI4,5
  *   PLL2R = PLL2_VCO/2  = 160 MHz / 2  = 80 MHz
  */
 
-#define STM32_PLLCFG_PLL2CFG     (RCC_PLLCFGR_PLL2VCOSEL_MEDIUM | \
-                                  RCC_PLLCFGR_PLL2RGE_2_4_MHZ   | \
-                                  RCC_PLLCFGR_DIVQ2EN)
-                                  /* DIVP2EN, DIVR2EN omitted — unused */
-#define STM32_PLLCFG_PLL2M       RCC_PLLCKSELR_DIVM2(8)
-#define STM32_PLLCFG_PLL2N       RCC_PLL2DIVR_N2(80)
-#define STM32_PLLCFG_PLL2P       RCC_PLL2DIVR_P2(2)
-#define STM32_PLLCFG_PLL2Q       RCC_PLL2DIVR_Q2(40)
-#define STM32_PLLCFG_PLL2R       RCC_PLL2DIVR_R2(2)
+#define STM32_PLLCFG_PLL2CFG (RCC_PLLCFGR_PLL2VCOSEL_WIDE | \
+                              RCC_PLLCFGR_PLL2RGE_4_8_MHZ | \
+                              RCC_PLLCFGR_DIVP2EN | \
+                              RCC_PLLCFGR_DIVQ2EN | \
+                              RCC_PLLCFGR_DIVR2EN )
 
-#define STM32_VCO2_FREQUENCY     ((STM32_HSE_FREQUENCY / 8) * 80)
-#define STM32_PLL2P_FREQUENCY    (STM32_VCO2_FREQUENCY / 2)
-#define STM32_PLL2Q_FREQUENCY    (STM32_VCO2_FREQUENCY / 40)
+#define STM32_VCO2_FREQUENCY     ((STM32_HSE_FREQUENCY / 4) * 40)
+#define STM32_PLL2P_FREQUENCY    (STM32_VCO2_FREQUENCY / 8)
+#define STM32_PLL2Q_FREQUENCY    (STM32_VCO2_FREQUENCY / 8)
 #define STM32_PLL2R_FREQUENCY    (STM32_VCO2_FREQUENCY / 2)
+
+#define STM32_PLLCFG_PLL2M       RCC_PLLCKSELR_DIVM2(4)
+#define STM32_PLLCFG_PLL2N       RCC_PLL2DIVR_N2(40)
+#define STM32_PLLCFG_PLL2P       RCC_PLL2DIVR_P2(8)
+#define STM32_PLLCFG_PLL2Q       RCC_PLL2DIVR_Q2(8)
+#define STM32_PLLCFG_PLL2R       RCC_PLL2DIVR_R2(2)
 
 /* PLL3 */
 
 /* PLL3, 16 MHz input, enable DIVQ, DIVR
  *
- *   PLL3_VCO = (16,000,000 / 8) * 80 = 160 MHz
+ *   PLL3_VCO = (16 MHz / 2) * 24 = 192 MHz
  *
  *  Outputs of PLL3:
- *   PLL3P = PLL3_VCO/2  = 160 MHz / 2  = 80 MHz
- *   PLL3Q = PLL3_VCO/2  = 160 MHz / 2  = 80 MHz
- *   PLL3R = PLL3_VCO/40 = 160 MHz / 40 =  4 MHz  ← used for I2C1,2,3
+ *   PLL3P = PLL3_VCO/24 = 192 MHz / 24  = 8 MHz
+ *   PLL3Q = PLL3_VCO/4  = 192 MHz / 4  = 48 MHz
+ *   PLL3R = PLL3_VCO/96 = 192 MHz / 96 =  2 MHz  ← used for I2C1,2,3
  */
 
-#define STM32_PLLCFG_PLL3CFG     (RCC_PLLCFGR_PLL3VCOSEL_MEDIUM | \
-                                  RCC_PLLCFGR_PLL3RGE_2_4_MHZ   | \
-                                  RCC_PLLCFGR_DIVQ3EN            | \
-                                  RCC_PLLCFGR_DIVR3EN)
-                                  /* DIVP3EN omitted — unused */
-#define STM32_PLLCFG_PLL3M       RCC_PLLCKSELR_DIVM3(8)
-#define STM32_PLLCFG_PLL3N       RCC_PLL3DIVR_N3(80)
-#define STM32_PLLCFG_PLL3P       RCC_PLL3DIVR_P3(2)
-#define STM32_PLLCFG_PLL3Q       RCC_PLL3DIVR_Q3(2)
-#define STM32_PLLCFG_PLL3R       RCC_PLL3DIVR_R3(40)
+#define STM32_PLLCFG_PLL3CFG (RCC_PLLCFGR_PLL3VCOSEL_WIDE| \
+                              RCC_PLLCFGR_PLL3RGE_4_8_MHZ| \
+                              RCC_PLLCFGR_DIVP3EN| \
+                              RCC_PLLCFGR_DIVQ3EN| \
+                              RCC_PLLCFGR_DIVR3EN)
 
-#define STM32_VCO3_FREQUENCY     ((STM32_HSE_FREQUENCY / 8) * 80)
-#define STM32_PLL3P_FREQUENCY    (STM32_VCO3_FREQUENCY / 2)
-#define STM32_PLL3Q_FREQUENCY    (STM32_VCO3_FREQUENCY / 2)
-#define STM32_PLL3R_FREQUENCY    (STM32_VCO3_FREQUENCY / 40)
+#define STM32_VCO3_FREQUENCY     ((STM32_HSE_FREQUENCY / 2) * 24)
+#define STM32_PLL3P_FREQUENCY    (STM32_VCO3_FREQUENCY / 24)
+#define STM32_PLL3Q_FREQUENCY    (STM32_VCO3_FREQUENCY / 4)
+#define STM32_PLL3R_FREQUENCY    (STM32_VCO3_FREQUENCY / 96)
 
-/* SYSCLK = PLL1P = 80 MHz
- * CPUCLK = SYSCLK / 1 = 80 MHz
+#define STM32_PLLCFG_PLL3M       RCC_PLLCKSELR_DIVM3(2)
+#define STM32_PLLCFG_PLL3N       RCC_PLL3DIVR_N3(24)
+#define STM32_PLLCFG_PLL3P       RCC_PLL3DIVR_P3(24)
+#define STM32_PLLCFG_PLL3Q       RCC_PLL3DIVR_Q3(4)
+#define STM32_PLLCFG_PLL3R       RCC_PLL3DIVR_R3(96)
+
+/* SYSCLK = PLL1P = 480 MHz
+ * CPUCLK = SYSCLK / 1 = 480 MHz
  */
 
 #define STM32_RCC_D1CFGR_D1CPRE  (RCC_D1CFGR_D1CPRE_SYSCLK)
@@ -162,35 +166,34 @@
 
 /* Configure Clock Assignments */
 
-/* SYSCLK = PLL1P = 80 MHz
- * HPRE = /1  → HCLK = 80 MHz
- * All APB prescalers = /2 → PCLKx = 40 MHz
+/* AHB clock (HCLK) is SYSCLK/2 (240 MHz max)
+ * HCLK1 = HCLK2 = HCLK3 = HCLK4
  */
 
-#define STM32_RCC_D1CFGR_HPRE    RCC_D1CFGR_HPRE_SYSCLK         /* HCLK  = SYSCLK / 1 = 80 MHz */
-#define STM32_ACLK_FREQUENCY     STM32_SYSCLK_FREQUENCY          /* ACLK  = 80 MHz */
-#define STM32_HCLK_FREQUENCY     STM32_SYSCLK_FREQUENCY          /* HCLK  = 80 MHz */
+#define STM32_RCC_D1CFGR_HPRE    RCC_D1CFGR_HPRE_SYSCLKd2       /* HCLK  = SYSCLK / 2 */
+#define STM32_ACLK_FREQUENCY    (STM32_SYSCLK_FREQUENCY / 2)    /* ACLK in D1, HCLK3 in D1 */
+#define STM32_HCLK_FREQUENCY    (STM32_SYSCLK_FREQUENCY / 2)    /* HCLK in D2, HCLK4 in D3 */
 
-/* APB1 (PCLK1) = HCLK/2 = 40 MHz */
+/* APB1 (PCLK1) = HCLK/2 = 120 MHz */
 #define STM32_RCC_D2CFGR_D2PPRE1  RCC_D2CFGR_D2PPRE1_HCLKd2
 #define STM32_PCLK1_FREQUENCY     (STM32_HCLK_FREQUENCY / 2)
 
-/* APB2 (PCLK2) = HCLK/2 = 40 MHz */
+/* APB2 (PCLK2) = HCLK/2 = 120 MHz */
 #define STM32_RCC_D2CFGR_D2PPRE2  RCC_D2CFGR_D2PPRE2_HCLKd2
 #define STM32_PCLK2_FREQUENCY     (STM32_HCLK_FREQUENCY / 2)
 
-/* APB3 (PCLK3) = HCLK/2 = 40 MHz */
+/* APB3 (PCLK3) = HCLK/2 = 120 MHz */
 #define STM32_RCC_D1CFGR_D1PPRE   RCC_D1CFGR_D1PPRE_HCLKd2
 #define STM32_PCLK3_FREQUENCY     (STM32_HCLK_FREQUENCY / 2)
 
-/* APB4 (PCLK4) = HCLK/2 = 40 MHz */
+/* APB4 (PCLK4) = HCLK/2 = 120 MHz */
 #define STM32_RCC_D3CFGR_D3PPRE   RCC_D3CFGR_D3PPRE_HCLKd2
 #define STM32_PCLK4_FREQUENCY     (STM32_HCLK_FREQUENCY / 2)
 
 /* Timer clock frequencies (×2 when APB prescaler != 1) */
 
 /* Timers on APB1 */
-#define STM32_APB1_TIM2_CLKIN   (2 * STM32_PCLK1_FREQUENCY)   /* 80 MHz */
+#define STM32_APB1_TIM2_CLKIN   (2 * STM32_PCLK1_FREQUENCY)
 #define STM32_APB1_TIM3_CLKIN   (2 * STM32_PCLK1_FREQUENCY)
 #define STM32_APB1_TIM4_CLKIN   (2 * STM32_PCLK1_FREQUENCY)   /* RGB LED PWM */
 #define STM32_APB1_TIM5_CLKIN   (2 * STM32_PCLK1_FREQUENCY)
@@ -218,19 +221,24 @@
 /* I2C4 clock source - HSI (16 MHz) */
 #define STM32_RCC_D3CCIPR_I2C4SRC     RCC_D3CCIPR_I2C4SEL_HSI
 
-/* SPI4,5 clock source - PLL2Q (4 MHz) */
-#define STM32_RCC_D2CCIP1R_SPI45SRC   RCC_D2CCIP1R_SPI45SEL_PLL2
+/* SPI123 clock source - PLL2P
+ *
+ * PLL3 is not supported by this NuttX version's SPI123 kernel clock
+ * selection (see arch/arm/src/stm32h7/stm32_spi.c); PLL2 is already used
+ * for SPI45, so SPI1 (IMU1) shares it.
+ */
+#define STM32_RCC_D2CCIP1R_SPI123SRC RCC_D2CCIP1R_SPI123SEL_PLL2
 
-/* USART2,3 clock source - PCLK1 (40 MHz, D2 domain) */
-#define STM32_RCC_D2CCIP2R_USART234578SRC  RCC_D2CCIP2R_USART234578SEL_PCLK
+/* SPI45 clock source - PLL2Q */
+#define STM32_RCC_D2CCIP1R_SPI45SRC  RCC_D2CCIP1R_SPI45SEL_PLL2
 
-/* USART6 clock source - PCLK2 (40 MHz, D2 domain) */
-#define STM32_RCC_D2CCIP2R_USART16910SRC   RCC_D2CCIP2R_USART16910SEL_PCLK
+/* SPI6 clock source - APB (PCLK4) */
+#define STM32_RCC_D3CCIPR_SPI6SRC    RCC_D3CCIPR_SPI6SEL_PCLK4
 
 /* USB OTG FS clock source - HSI48 */
 #define STM32_RCC_D2CCIP2R_USBSRC    RCC_D2CCIP2R_USBSEL_HSI48
 
-/* ADC1,2 clock source - PLL2P (80 MHz) */
+/* ADC 1 2 3 clock source - pll2_pclk */
 #define STM32_RCC_D3CCIPR_ADCSRC     RCC_D3CCIPR_ADCSEL_PLL2
 
 /* FLASH wait states
@@ -255,18 +263,29 @@
  * Vcore VOS1, ACLK=80 MHz → 1 wait state
  */
 
-#define BOARD_FLASH_WAITSTATES 1
+#define BOARD_FLASH_WAITSTATES 4
 
-/* SDMMC1 clock source - PLL1Q
- * Note: PLL1Q must be re-enabled if SDMMC is used.
- * Init  400 kHz : PLL1Q / (2 * 100) = 80MHz / 200 = 400 kHz
- * Xfer  25  MHz : PLL1Q / (2 * 2)   = 80MHz / 4   = 20 MHz
+/* SDMMC definitions ********************************************************/
+
+/* Init 400 kHz, PLL1Q/(2*300) = 240 MHz / (2*300) = 400 Khz */
+
+#define STM32_SDMMC_INIT_CLKDIV     (300 << STM32_SDMMC_CLKCR_CLKDIV_SHIFT)
+
+/* Just set these to 24 MHz for now,
+ * PLL1Q/(2*5) = 240 MHz / (2*5) = 24 MHz
  */
-#define STM32_RCC_D1CCIPR_SDMMCSRC   RCC_D1CCIPR_SDMMCSEL_PLL1
-#define STM32_SDMMC_INIT_CLKDIV      (100 << STM32_SDMMC_CLKCR_CLKDIV_SHIFT)
-#define STM32_SDMMC_MMCXFR_CLKDIV   (2   << STM32_SDMMC_CLKCR_CLKDIV_SHIFT)
-#define STM32_SDMMC_SDXFR_CLKDIV    (2   << STM32_SDMMC_CLKCR_CLKDIV_SHIFT)
-#define STM32_SDMMC_CLKCR_EDGE       STM32_SDMMC_CLKCR_NEGEDGE
+
+#define STM32_SDMMC_MMCXFR_CLKDIV   (5 << STM32_SDMMC_CLKCR_CLKDIV_SHIFT)
+#define STM32_SDMMC_SDXFR_CLKDIV    (5 << STM32_SDMMC_CLKCR_CLKDIV_SHIFT)
+
+#define STM32_SDMMC_CLKCR_EDGE      STM32_SDMMC_CLKCR_NEGEDGE
+
+#define GPIO_SDMMC1_CK   (GPIO_SDMMC1_CK_0|GPIO_SPEED_100MHz)  /* PC12 */
+#define GPIO_SDMMC1_CMD  (GPIO_SDMMC1_CMD_0|GPIO_SPEED_100MHz) /* PD2 */
+#define GPIO_SDMMC1_D0   (GPIO_SDMMC1_D0_0|GPIO_SPEED_100MHz)  /* PC8 */
+#define GPIO_SDMMC1_D1   (GPIO_SDMMC1_D1_0|GPIO_SPEED_100MHz)  /* PC9 */
+#define GPIO_SDMMC1_D2   (GPIO_SDMMC1_D2_0|GPIO_SPEED_100MHz)  /* PC10 */
+#define GPIO_SDMMC1_D3   (GPIO_SDMMC1_D3_0|GPIO_SPEED_100MHz)  /* PC11 */
 
 /* LED definitions **********************************************************/
 
@@ -326,8 +345,8 @@
 /* UART5 - Mini Pad Out UART (AF14)
  * TX=PB13, RX=PB12
  */
-#define GPIO_UART5_TX     (GPIO_UART5_TX_2   | GPIO_SPEED_100MHz)  /* PB13, AF14 */
-#define GPIO_UART5_RX     (GPIO_UART5_RX_2   | GPIO_SPEED_100MHz)  /* PB12, AF14 */
+#define GPIO_UART5_TX     (GPIO_UART5_TX_1   | GPIO_SPEED_100MHz)  /* PB13, AF14 */
+#define GPIO_UART5_RX     (GPIO_UART5_RX_1   | GPIO_SPEED_100MHz)  /* PB12, AF14 */
 
 /* UART8 - GPS (AF8)
  * TX=PE1, RX=PE0

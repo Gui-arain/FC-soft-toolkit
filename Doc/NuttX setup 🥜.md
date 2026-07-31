@@ -184,7 +184,7 @@ Clean and build the RTOS with the given .config
 
 To connect to a board
 ```bash
-openocd -f interface/stlink.cfg -f target/stm32g4x.cfg -c 'adapter speed 100' -c 'init' -c 'targets' -c 'shutdown'
+openocd -f interface/stlink.cfg -f target/stm32g4x.cfg -c 'adapter speed 100' -c 'init' -c 'targets' -c 'shutdown' 
 ```
 => In long term, a openOCD config file will be needed to automatically reduce speed
 
