@@ -1,8 +1,8 @@
 /****************************************************************************
- * boards/arm/stm32h7/shirley-fc-dev-board/src/fc-dev.h
+ * boards/arm/stm32h7/shirley-fc-dev-board/src/shirley-fc-dev.h
  *
  * Board-level shared definitions for the Shirley FC Dev Board (STM32H743).
- * Included by stm32_bringup.c, stm32_appinit.c, and stm32_spi.c.
+ * Included by stm32_boot.c, stm32_bringup.c, and stm32_spi.c.
  *
  * Peripheral map (pinout.yaml):
  *   SPI4  → Magnetometer  (CS: PE4  / GPIO_MAG_CS)
@@ -55,6 +55,13 @@
  ****************************************************************************/
 
 int stm32_bringup(void);
+
+/* stm32_spidev_initialize : configures SPI chip-select GPIOs (and, when
+ * the uORB IMU driver is enabled, the IMU's data-ready EXTI line). See
+ * stm32_spi.c.
+ */
+
+void stm32_spidev_initialize(void);
 
 #ifdef CONFIG_SENSORS_ICM40609D_UORB
 /* stm32_imu_int_placeholder : no-op handler passed to stm32_gpiosetevent()

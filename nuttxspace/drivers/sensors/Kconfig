@@ -23,6 +23,7 @@ config SENSORS_ICM40609D_UORB
 	default n
 	depends on SPI && SENSORS
 	depends on !SENSORS_ICM40609D
+	select SCHED_HPWORK
 	---help---
 		Enable the uORB-based NuttX driver for the InvenSense ICM-40609-D
 		6-axis IMU (accelerometer + gyroscope). Registers two independent

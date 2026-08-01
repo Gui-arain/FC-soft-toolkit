@@ -25,7 +25,7 @@
 #include "arm_internal.h"
 #include "stm32_gpio.h"
 #include "hardware/stm32_exti.h"
-#include "fc-dev.h"
+#include "shirley-fc-dev.h"
 
 /****************************************************************************
  * Public Functions
@@ -66,6 +66,36 @@ void stm32_imu_irq_ack(void)
   putreg32(STM32_EXTI_MASK(5), STM32_EXTI_CPUPR1);
 }
 #endif /* CONFIG_SENSORS_ICM40609D_UORB */
+
+/****************************************************************************
+ * Name: stm32_spidev_initialize
+ *
+ * Description:
+ *   Called to configure SPI chip select GPIO pins for the shirley-fc-dev
+ *   board.
+ *
+ ****************************************************************************/
+
+void stm32_spidev_initialize(void)
+{
+  /* Configure CS pins as GPIO outputs, deasserted (high) at boot */
+
+  stm32_configgpio(GPIO_MAG_CS);   /* PE4 — Magnetometer CS */
+  stm32_configgpio(GPIO_IMU_CS);   /* PF10 — IMU CS */
+
+#ifdef CONFIG_SENSORS_ICM40609D_UORB
+  /* Arm the IMU's data-ready EXTI line (rising edge). A non-NULL handler
+   * is required here so stm32_gpiosetevent() unmasks the EXTI line itself
+   * — see stm32_imu_int_placeholder()'s doc comment in stm32_spi.c. The
+   * driver takes over the actual vector via irq_attach()/up_enable_irq()
+   * when it starts streaming (icm_fifo_start() in icm40609d_uorb.c).
+   */
+
+  stm32_configgpio(GPIO_IMU_INT);   /* PF5 — IMU INT1 */
+  stm32_gpiosetevent(GPIO_IMU_INT, true, false, false,
+                     stm32_imu_int_placeholder, NULL);
+#endif
+}
 
 /****************************************************************************
  * Name: stm32_spi4select
@@ -109,11 +139,13 @@ void stm32_spi5select(FAR struct spi_dev_s *dev,
   spiinfo("devid: %08lx CS: %s\n",
           (unsigned long)devid, selected ? "assert" : "de-assert");
 
-  if (devid == FC_IMU_SPIDEV)
-    {
-      stm32_gpiowrite(GPIO_IMU_CS, !selected); /* active low */
-    }
-}
+  #ifdef CONFIG_SENSORS_ICM40609D_UORB
+    if (devid == FC_IMU_SPIDEV)
+      {
+        stm32_gpiowrite(GPIO_IMU_CS, !selected); /* active low */
+      }
+  #endif
+  }
 
 uint8_t stm32_spi5status(FAR struct spi_dev_s *dev, uint32_t devid)
 {

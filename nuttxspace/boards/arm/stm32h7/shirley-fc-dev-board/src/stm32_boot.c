@@ -62,6 +62,25 @@ void stm32_boardinitialize(void)
   stm32_gpiowrite(GPIO_PORTE, true);
   stm32_gpiowrite(GPIO_PORTF, true);
 
+  #if defined(CONFIG_STM32H7_SPI1) || defined(CONFIG_STM32H7_SPI2) || \
+      defined(CONFIG_STM32H7_SPI3) || defined(CONFIG_STM32H7_SPI4) || \
+      defined(CONFIG_STM32H7_SPI6)
+  /* Configure SPI chip selects if 1) SPI is not disabled, and 2) the weak
+   * function stm32_spidev_initialize() has been brought into the link.
+   */
+
+  if (stm32_spidev_initialize)
+    {
+      stm32_spidev_initialize();
+    }
+  #endif
+
+  #ifdef CONFIG_ARCH_LEDS
+    /* Configure on-board LEDs if LED support has been selected. */
+
+    board_autoled_initialize();
+  #endif
+
   /* Initialize the serial console UART early so boot messages
    * are visible from the very start.
    */

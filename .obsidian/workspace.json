@@ -69,12 +69,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Doc/NuttX setup 🥜.md",
+                "file": "Doc/NuttX Board Port.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "NuttX setup 🥜"
+              "title": "NuttX Board Port"
             }
           }
         ],
@@ -244,21 +244,21 @@
   },
   "active": "6dbe9dc09ca20c3d",
   "lastOpenFiles": [
-    "nuttxspace/boards/arm/stm32h7/shirley-fc-dev-board/src/shirley-fc-dev.h",
     "nuttxspace/nuttx/nuttx.bin",
-    "nuttxspace/nuttx/nuttx.hex",
     "nuttxspace/nuttx/nuttx.manifest",
+    "nuttxspace/nuttx/nuttx.hex",
     "nuttxspace/nuttx/System.map",
     "nuttxspace/nuttx/nuttx",
     "nuttxspace/nuttx/nuttx.map",
     "nuttxspace/boards/arm/stm32h7/shirley-fc-dev-board/src/libboard.a",
+    "nuttxspace/boards/arm/stm32h7/shirley-fc-dev-board/src/stm32_bringup.o",
     "nuttxspace/boards/arm/stm32h7/shirley-fc-dev-board/src/stm32_spi.o",
-    "nuttxspace/boards/arm/stm32h7/shirley-fc-dev-board/src/stm32_appinit.o",
     "nuttxspace/boards/arm/stm32h7/shirley-fc-dev-board/src/stm32_boot.o",
+    "nuttxspace/nuttx/staging/libc.a",
+    "Doc/NuttX setup 🥜.md",
     "Doc/Setup MacOS 🍎.md",
     "Doc/Setup Linux 🐧.md",
     "Doc/Sensors Settings 📐.md",
-    "Doc/NuttX setup 🥜.md",
     "Doc/FC First Bringup 🌱.md",
     "Doc/FC stack architecture.md",
     "Doc/JLink Cheatsheet ⛓️.md",
