@@ -18,6 +18,45 @@ config SENSORS_ICM40609D
 		  Accel: ±16 g,      1 kHz ODR
 		  Mode:  low-noise, temperature sensor on
 
+config SENSORS_ICM40609D_UORB
+	bool "InvenSense ICM-40609-D IMU, uORB (accel + gyro)"
+	default n
+	depends on SPI && SENSORS
+	depends on !SENSORS_ICM40609D
+	---help---
+		Enable the uORB-based NuttX driver for the InvenSense ICM-40609-D
+		6-axis IMU (accelerometer + gyroscope). Registers two independent
+		uORB topics per chip instance: /dev/uorb/sensor_accel<N> and
+		/dev/uorb/sensor_gyro<N>, each supporting multiple subscribers at
+		independent rates.
+
+		The chip is wired to SPI5 on the Shirley FC Dev Board (CS: PF10,
+		INT1: PF5). Mutually exclusive with SENSORS_ICM40609D (the legacy
+		char-device driver) -- both target the same physical chip/registers
+		and must not be enabled simultaneously.
+
+		Default configuration after reset:
+		  Gyro:  ±2000 dps,  1 kHz ODR
+		  Accel: ±16 g,      1 kHz ODR
+		  Mode:  low-noise, temperature sensor on
+
+config SENSORS_ICM40609D_UORB_ACCEL_ORB_BUFSIZE
+	int "ICM-40609-D accelerometer uORB buffer size"
+	default 50
+	range 1 500
+	depends on SENSORS_ICM40609D_UORB
+	---help---
+		Circular buffer depth (in samples) for the accelerometer uORB
+		topic. Should be sized to at least the shared FIFO watermark
+		(default 50 samples) to avoid losing a burst's worth of samples
+		if a subscriber momentarily falls behind.
+
+config SENSORS_ICM40609D_UORB_GYRO_ORB_BUFSIZE
+	int "ICM-40609-D gyroscope uORB buffer size"
+	default 50
+	range 1 500
+	depends on SENSORS_ICM40609D_UORB
+
 # ICM-42688-P IMU (6-axis, SPI)
 
 config SENSORS_ICM42688P

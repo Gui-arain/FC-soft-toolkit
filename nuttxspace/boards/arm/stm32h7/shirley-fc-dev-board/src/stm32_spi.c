@@ -22,12 +22,50 @@
 #include <nuttx/spi/spi.h>
 #include <nuttx/debug.h>
 
+#include "arm_internal.h"
 #include "stm32_gpio.h"
+#include "hardware/stm32_exti.h"
 #include "fc-dev.h"
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
+
+#ifdef CONFIG_SENSORS_ICM40609D_UORB
+/****************************************************************************
+ * Name: stm32_imu_int_placeholder
+ *
+ * Description:
+ *   stm32_gpiosetevent() only sets the EXTI peripheral's own interrupt
+ *   mask register (separate from, and in addition to, the NVIC enable
+ *   toggled by up_enable_irq()/up_disable_irq()) when passed a non-NULL
+ *   handler. A NULL handler here would leave the EXTI line masked at the
+ *   source forever, regardless of anything the driver does at the NVIC
+ *   level — so this placeholder exists purely to get that bit set once
+ *   at boot. The driver's own irq_attach() in icm_fifo_start() overwrites
+ *   the actual vector once streaming begins; this is never called for
+ *   real.
+ ****************************************************************************/
+
+int stm32_imu_int_placeholder(int irq, FAR void *context, FAR void *arg)
+{
+  return OK;
+}
+
+/****************************************************************************
+ * Name: stm32_imu_irq_ack
+ *
+ * Description:
+ *   Clears the EXTI pending bit for the IMU's INT1 line (PF5, EXTI line
+ *   5). Passed to the driver as icm_config_s.irq_ack — see that field's
+ *   doc comment for why this is required.
+ ****************************************************************************/
+
+void stm32_imu_irq_ack(void)
+{
+  putreg32(STM32_EXTI_MASK(5), STM32_EXTI_CPUPR1);
+}
+#endif /* CONFIG_SENSORS_ICM40609D_UORB */
 
 /****************************************************************************
  * Name: stm32_spi4select

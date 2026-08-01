@@ -37,9 +37,14 @@ CONFIG_NSH_READLINE=y
 CONFIG_NSH_FILEIOSIZE=512
 CONFIG_INIT_ENTRYPOINT="nsh_main"
 
+# Without this, nsh_init.c never calls boardctl(BOARDIOC_INIT, 0), so
+# board_app_initialize() (stm32_appinit.c -- IMU/MAG/BARO registration)
+# never runs and no sensor device ever appears under /dev.
+CONFIG_NSH_ARCHINIT=y
+
 # SPI peripherals
 # CONFIG_STM32H7_SPI4=y
-# CONFIG_STM32H7_SPI5=y
+CONFIG_STM32H7_SPI5=y
 
 # I2C peripherals
 # CONFIG_STM32H7_I2C2=y
@@ -74,4 +79,15 @@ CONFIG_USERMAIN_STACKSIZE=4096
 CONFIG_LINE_MAX=64
 
 # Out-of-tree drivers (nuttxspace/drivers/)
+# CONFIG_SPECIFIC_DRIVERS must be set for nuttx/drivers/Makefile to include
+# drivers/sensors/Make.defs at all (see drivers/platform/Make.defs) -- without
+# it, CONFIG_SENSORS_ICM40609D_UORB=y below silently compiles nothing.
+CONFIG_SPECIFIC_DRIVERS=y
 # CONFIG_SENSORS_ICM40609D=y
+CONFIG_SENSORS=y
+CONFIG_SENSORS_ICM40609D_UORB=y
+
+# Enanles uORB listener app for debugging
+CONFIG_USENSOR=y
+CONFIG_UORB=y
+CONFIG_UORB_LISTENER=y

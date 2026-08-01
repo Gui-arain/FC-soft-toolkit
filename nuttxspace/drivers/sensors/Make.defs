@@ -21,6 +21,13 @@ ifeq ($(CONFIG_SENSORS_ICM40609D),y)
   VPATH   += :../../drivers/sensors
 endif
 
+ifeq ($(CONFIG_SENSORS_ICM40609D_UORB),y)
+  CSRCS += icm40609d_uorb.c
+
+  DEPPATH += --dep-path ../../drivers/sensors
+  VPATH   += :../../drivers/sensors
+endif
+
 ifeq ($(CONFIG_SENSORS_ICM42688P),y)
   CSRCS += icm42688p_uorb.c
 

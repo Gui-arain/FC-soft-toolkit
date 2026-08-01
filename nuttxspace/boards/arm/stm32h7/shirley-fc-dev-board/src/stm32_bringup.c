@@ -78,6 +78,19 @@ static int fc_spi_initialize(void)
   stm32_configgpio(GPIO_MAG_CS);   /* PE4 — Magnetometer CS */
   stm32_configgpio(GPIO_IMU_CS);   /* PF10 — IMU CS */
 
+#ifdef CONFIG_SENSORS_ICM40609D_UORB
+  /* Arm the IMU's data-ready EXTI line (rising edge). A non-NULL handler
+   * is required here so stm32_gpiosetevent() unmasks the EXTI line itself
+   * — see stm32_imu_int_placeholder()'s doc comment in stm32_spi.c. The
+   * driver takes over the actual vector via irq_attach()/up_enable_irq()
+   * when it starts streaming (icm_fifo_start() in icm40609d_uorb.c).
+   */
+
+  stm32_configgpio(GPIO_IMU_INT);   /* PF5 — IMU INT1 */
+  stm32_gpiosetevent(GPIO_IMU_INT, true, false, false,
+                     stm32_imu_int_placeholder, NULL);
+#endif
+
   /* Bring up SPI4 (Magnetometer) */
 
 #ifdef CONFIG_STM32H7_SPI4

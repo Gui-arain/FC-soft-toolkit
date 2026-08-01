@@ -35,7 +35,11 @@
 #include <nuttx/board.h>
 #include <nuttx/spi/spi.h>
 #include <nuttx/i2c/i2c_master.h>
+#ifdef CONFIG_SENSORS_ICM40609D_UORB
+#include <nuttx/sensors/icm40609d_uorb.h>
+#else
 #include <nuttx/sensors/icm40609d.h>
+#endif
 
 #include <arch/board/board.h>
 #include "stm32_gpio.h"
@@ -96,6 +100,23 @@ static int fc_imu_register(void)
   cfg.spi      = spi;
   cfg.spi_devid = FC_IMU_SPIDEV;
 
+#ifdef CONFIG_SENSORS_ICM40609D_UORB
+  cfg.irq     = STM32_IRQ_EXTI95;
+  cfg.irq_ack = stm32_imu_irq_ack;
+
+  ret = icm40609d_uorb_register(IMU_DEVNO, &cfg);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR,
+             "ERROR: icm40609d_uorb_register(devno=%d) failed: %d\n",
+             IMU_DEVNO, ret);
+      return ret;
+    }
+
+  syslog(LOG_INFO,
+         "IMU (ICM-40609-D) registered: sensor_accel%d/sensor_gyro%d\n",
+         IMU_DEVNO, IMU_DEVNO);
+#else
   ret = icm40609d_register("/dev/imu0", &cfg);
   if (ret < 0)
     {
@@ -105,6 +126,8 @@ static int fc_imu_register(void)
     }
 
   syslog(LOG_INFO, "IMU (ICM-40609-D) registered at /dev/imu0\n");
+#endif
+
   return OK;
 }
 

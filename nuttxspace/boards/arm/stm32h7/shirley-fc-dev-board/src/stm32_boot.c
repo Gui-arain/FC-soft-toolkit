@@ -18,7 +18,7 @@
 #include "arm_internal.h"
 #include "stm32_gpio.h"
 #include "stm32_rcc.h"
-#include "fc-dev.h"
+#include "shirley-fc-dev.h"
 
 /****************************************************************************
  * Public Functions
