@@ -363,7 +363,7 @@ int stm32_bringup(void)
 
   #ifdef CONFIG_SENSORS_ICM40609D_UORB
 
-  ret = fc_imu_register(1, FC_IMU_SPIDEV, STM32_IRQ_EXTI95,
+  ret = fc_imu_register(FC_IMU_SPI_BUS, FC_IMU_SPIDEV, STM32_IRQ_EXTI95,
                         stm32_imu_irq_ack, 0);
   if (ret < 0)
     {

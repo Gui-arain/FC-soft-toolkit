@@ -380,7 +380,7 @@
  */
 #define GPIO_SPI5_SCK     (GPIO_SPI5_SCK_1   | GPIO_SPEED_50MHz)   /* PF7, AF5 */
 #define GPIO_SPI5_MISO    (GPIO_SPI5_MISO_1  | GPIO_SPEED_50MHz)   /* PF8, AF5 */
-#define GPIO_SPI5_MOSI    (GPIO_SPI5_MOSI_1  | GPIO_SPEED_50MHz)   /* PF9, AF5 */
+#define GPIO_SPI5_MOSI    (GPIO_SPI5_MOSI_2  | GPIO_SPEED_50MHz)   /* PF9, AF5 */
 
 /* I2C1 - External Compass Connector (AF4)
  * SCL=PB6, SDA=PB7

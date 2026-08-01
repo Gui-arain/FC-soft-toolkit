@@ -62,9 +62,7 @@ void stm32_boardinitialize(void)
   stm32_gpiowrite(GPIO_PORTE, true);
   stm32_gpiowrite(GPIO_PORTF, true);
 
-  #if defined(CONFIG_STM32H7_SPI1) || defined(CONFIG_STM32H7_SPI2) || \
-      defined(CONFIG_STM32H7_SPI3) || defined(CONFIG_STM32H7_SPI4) || \
-      defined(CONFIG_STM32H7_SPI6)
+  #if defined(CONFIG_STM32H7_SPI4) || defined(CONFIG_STM32H7_SPI5)
   /* Configure SPI chip selects if 1) SPI is not disabled, and 2) the weak
    * function stm32_spidev_initialize() has been brought into the link.
    */
